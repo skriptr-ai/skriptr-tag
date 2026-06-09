@@ -195,26 +195,34 @@ export function Minimap() {
               className="origin-center"
             />
 
-            {/* Glowing local player dot/arrow */}
+            {/* Glowing local player dot with directional indicator */}
             <g transform={`rotate(${localPlayerRotationDeg})`} className="origin-center">
-              {/* Directional arrow pointer */}
-              <path
-                d="M 0,-6 L 4,4 L 0,2 L -4,4 Z"
+              {/* Tactical direction nose pointer */}
+              <polygon
+                points="0,-8 3.5,-2 -3.5,-2"
+                fill="#ffffff"
+                stroke="#000000"
+                strokeWidth="0.75"
+              />
+              {/* Base player glowing radar circle */}
+              <circle
+                cx="0"
+                cy="0"
+                r="4.5"
                 fill="#00ffff"
                 stroke="#000000"
                 strokeWidth="1"
-                className="drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]"
+                className="drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]"
+              />
+              {/* Center core */}
+              <circle
+                cx="0"
+                cy="0"
+                r="1.5"
+                fill="#ffffff"
+                className="pointer-events-none"
               />
             </g>
-
-            {/* Local player inner pulsing core */}
-            <circle
-              cx="0"
-              cy="0"
-              r="2"
-              fill="#ffffff"
-              className="pointer-events-none"
-            />
           </g>
 
           {/* Gradients and Filters definitions */}
