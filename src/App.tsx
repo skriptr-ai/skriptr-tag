@@ -7,6 +7,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Game } from './components/Game';
 import { MobileControls } from './components/MobileControls';
 import { useGameStore } from './store';
+import { Minimap } from './components/Minimap';
 
 function HUD() {
   const gameState = useGameStore(state => state.gameState);
@@ -105,6 +106,9 @@ function HUD() {
 
       {/* Mobile Controls */}
       {isMobile && gameState === 'playing' && <MobileControls />}
+
+      {/* Live Minimap */}
+      <Minimap />
     </>
   );
 }

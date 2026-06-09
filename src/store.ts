@@ -59,6 +59,8 @@ interface GameStore {
   lasers: LaserData[];
   particles: ParticleData[];
   events: GameEvent[];
+  playerPosition: [number, number, number];
+  playerRotation: number;
   
   // Multiplayer
   socket: Socket | null;
@@ -114,6 +116,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lasers: [],
   particles: [],
   events: [],
+  playerPosition: [0, 2, 0],
+  playerRotation: 0,
   
   socket: null,
   otherPlayers: {},
@@ -402,5 +406,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (socket) {
       socket.emit('updatePosition', { position, rotation });
     }
+    set({ playerPosition: position, playerRotation: rotation });
   }
 }));
