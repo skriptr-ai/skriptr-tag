@@ -59,6 +59,10 @@ interface GameStore {
   lasers: LaserData[];
   particles: ParticleData[];
   events: GameEvent[];
+  playerPosition: [number, number, number];
+  playerRotation: number;
+  isPointerLocked: boolean;
+  setPointerLocked: (locked: boolean) => void;
   
   // Multiplayer
   socket: Socket | null;
@@ -114,6 +118,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lasers: [],
   particles: [],
   events: [],
+  playerPosition: [0, 2, 0],
+  playerRotation: 0,
+  isPointerLocked: false,
   
   socket: null,
   otherPlayers: {},
@@ -267,6 +274,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       events: [],
       socket: newSocket,
       otherPlayers: {},
+      isPointerLocked: false,
     });
   },
 
@@ -275,7 +283,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (socket) {
       socket.disconnect();
     }
-    set({ gameState: 'gameover', socket: null });
+    set({ gameState: 'gameover', socket: null, isPointerLocked: false });
   },
 
   leaveGame: () => {
@@ -293,7 +301,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       events: [],
       score: 0,
       timeLeft: 120,
-      playerState: 'active'
+      playerState: 'active',
+      isPointerLocked: false
     });
   },
 
@@ -396,11 +405,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   }),
 
   setPlayerState: (playerState) => set({ playerState }),
+  
+  setPointerLocked: (isPointerLocked) => set({ isPointerLocked }),
 
   updatePlayerPosition: (position, rotation) => {
     const { socket } = get();
     if (socket) {
       socket.emit('updatePosition', { position, rotation });
     }
+    set({ playerPosition: position, playerRotation: rotation });
   }
 }));

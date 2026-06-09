@@ -7,6 +7,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Game } from './components/Game';
 import { MobileControls } from './components/MobileControls';
 import { useGameStore } from './store';
+import { Minimap } from './components/Minimap';
 
 function HUD() {
   const gameState = useGameStore(state => state.gameState);
@@ -18,6 +19,7 @@ function HUD() {
   const playerCount = Object.keys(otherPlayers).length + 1;
   const leaveGame = useGameStore(state => state.leaveGame);
   const isMobile = useIsMobile();
+  const isPointerLocked = useGameStore(state => state.isPointerLocked);
 
   const leaderboard = useMemo(() => {
     const players = [
@@ -33,13 +35,63 @@ function HUD() {
 
   return (
     <>
+      {/* Standby/Pause Overlay */}
+      {!isMobile && !isPointerLocked && (
+        <div 
+          onClick={() => {
+            const canvas = document.querySelector('canvas');
+            if (canvas) {
+              canvas.requestPointerLock();
+            } else {
+              document.body.requestPointerLock();
+            }
+          }}
+          className="absolute inset-0 bg-black/60 backdrop-blur-[3px] flex flex-col items-center justify-center z-10 cursor-pointer pointer-events-auto group select-none transition-all duration-300 animate-[fade-in_0.2s_ease-out]"
+        >
+          {/* Cybernetic Reticle standby prompt */}
+          <div className="relative p-6 rounded-2xl border border-cyan-500/20 bg-black/80 backdrop-blur-md text-center max-w-sm mx-4 shadow-[0_0_30px_rgba(6,182,212,0.15)] flex flex-col items-center gap-4">
+            
+            {/* Reticle icon */}
+            <div className="relative w-16 h-16 flex items-center justify-center">
+              <div className="absolute inset-0 border border-cyan-400/40 rounded-full animate-ping" style={{ animationDuration: '3s' }} />
+              <div className="absolute inset-1 border-2 border-dashed border-cyan-400/30 rounded-full animate-[spin_20s_linear_infinite]" />
+              <div className="absolute inset-3 border border-cyan-400/80 rounded-full flex items-center justify-center">
+                <div className="w-2 h-2 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <h2 className="text-cyan-400 text-xl font-black tracking-widest uppercase drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]">
+                RETICLE STANDBY
+              </h2>
+              <p className="text-gray-400 text-xs font-semibold tracking-wider">
+                SYSTEM PAUSED / LINK OFFLINE
+              </p>
+            </div>
+
+            <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent" />
+
+            <div className="text-[11px] text-cyan-400/60 uppercase tracking-widest font-bold leading-relaxed">
+              Click anywhere to lock cursor<br />
+              and resume gameplay
+            </div>
+
+            <div className="text-[10px] text-gray-500 font-semibold tracking-wide flex gap-4 uppercase mt-1">
+              <span>WASD: Move</span>
+              <span>•</span>
+              <span>Mouse: Shoot</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Crosshair */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center">
         <div className="relative">
           <div className={`w-4 h-4 border-2 rounded-full ${playerState === 'disabled' ? 'border-red-500' : 'border-cyan-400'}`} />
           <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 rounded-full ${playerState === 'disabled' ? 'bg-red-500' : 'bg-cyan-400'}`} />
         </div>
-        {!isMobile && <div className="mt-4 text-cyan-400/50 text-xs tracking-widest font-bold">CLICK TO AIM</div>}
+        {!isMobile && !isPointerLocked && <div className="mt-4 text-cyan-400/50 text-xs tracking-widest font-bold">CLICK TO AIM</div>}
       </div>
 
       {/* HUD Left - Score & Leaderboard */}
@@ -63,7 +115,7 @@ function HUD() {
       </div>
       
       {/* HUD Right - Time, Leave, Events */}
-      <div className="absolute top-2 right-2 md:top-4 md:right-4 flex flex-col items-end gap-1 md:gap-2 pointer-events-auto">
+      <div className="absolute top-2 right-2 md:top-4 md:right-4 flex flex-col items-end gap-1 md:gap-2 pointer-events-auto z-20">
         {gameState === 'playing' && (
           <div className="text-cyan-400 text-lg md:text-2xl font-bold drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] pointer-events-none">
             TIME: {Math.floor(timeLeft / 60)}:{(Math.floor(timeLeft) % 60).toString().padStart(2, '0')}
@@ -105,6 +157,9 @@ function HUD() {
 
       {/* Mobile Controls */}
       {isMobile && gameState === 'playing' && <MobileControls />}
+
+      {/* Live Minimap */}
+      <Minimap />
     </>
   );
 }
@@ -137,6 +192,13 @@ export default function App() {
 
   return (
     <div className="w-screen h-screen bg-black relative overflow-hidden font-mono select-none">
+      <style>{`
+        @keyframes fade-in {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
+
       {/* 3D Canvas */}
       <div className="absolute inset-0">
         <Game />
