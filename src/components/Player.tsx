@@ -23,6 +23,7 @@ export function Player() {
   const addLaser = useGameStore(state => state.addLaser);
   const hitEnemy = useGameStore(state => state.hitEnemy);
   const addParticles = useGameStore(state => state.addParticles);
+  const setPointerLocked = useGameStore(state => state.setPointerLocked);
 
   const keys = useRef({ 
     w: false, a: false, s: false, d: false,
@@ -264,7 +265,12 @@ export function Player() {
 
   return (
     <>
-      {!isTouchDevice.current && <PointerLockControls />}
+      {!isTouchDevice.current && (
+        <PointerLockControls 
+          onLock={() => setPointerLocked(true)} 
+          onUnlock={() => setPointerLocked(false)} 
+        />
+      )}
       <RigidBody
         ref={body}
         colliders={false}
