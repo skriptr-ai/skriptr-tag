@@ -11,6 +11,7 @@ import { Minimap } from './components/Minimap';
 
 function HUD() {
   const gameState = useGameStore(state => state.gameState);
+  const gameMode = useGameStore(state => state.gameMode);
   const score = useGameStore(state => state.score);
   const timeLeft = useGameStore(state => state.timeLeft);
   const playerState = useGameStore(state => state.playerState);
@@ -141,8 +142,8 @@ function HUD() {
 
       {/* Multiplayer Info */}
       <div className="absolute top-12 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none">
-        <div className="text-cyan-400 text-[10px] md:text-sm font-bold drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] opacity-70">
-          PLAYERS ONLINE: {playerCount}
+        <div className="text-cyan-400 text-[10px] md:text-sm font-bold drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] opacity-70 tracking-widest uppercase">
+          {gameMode === 'single' ? 'GRID STATUS: OFFLINE SANDBOX' : `PLAYERS ONLINE: ${playerCount}`}
         </div>
       </div>
 
@@ -186,9 +187,11 @@ function useIsMobile() {
 
 export default function App() {
   const gameState = useGameStore(state => state.gameState);
+  const gameMode = useGameStore(state => state.gameMode);
   const score = useGameStore(state => state.score);
   const startGame = useGameStore(state => state.startGame);
   const isMobile = useIsMobile();
+  const [selectedMode, setSelectedMode] = useState<'single' | 'online' | null>(null);
 
   return (
     <div className="w-screen h-screen bg-black relative overflow-hidden font-mono select-none">
@@ -196,6 +199,10 @@ export default function App() {
         @keyframes fade-in {
           from { opacity: 0; transform: scale(0.95); }
           to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes pulse-glow {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          50% { transform: scale(1.02); filter: brightness(1.15); }
         }
       `}</style>
 
@@ -209,22 +216,135 @@ export default function App() {
 
       {/* Menus */}
       {gameState === 'menu' && (
-        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-10 pointer-events-auto">
-          <h1 className="text-6xl font-black text-cyan-400 mb-8 drop-shadow-[0_0_20px_rgba(34,211,238,0.8)] tracking-tighter">
-            NEON ARENA
-          </h1>
-          <p className="text-gray-400 mb-8 text-center max-w-md">
-            WASD to move. Mouse to look and shoot.<br/>
-            Hit enemies for points. Don't get hit!
-          </p>
+        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center z-10 pointer-events-auto overflow-y-auto px-4 py-8">
+          {/* Main Title Section */}
+          <div className="text-center mb-8 animate-[fade-in_0.5s_ease-out]">
+            <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-cyan-400 mb-3 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)] tracking-tighter uppercase select-none animate-pulse">
+              NEON ARENA
+            </h1>
+            <p className="text-cyan-400/60 font-bold tracking-widest text-xs md:text-sm uppercase mb-4">
+              [ Grid System Status: Online ]
+            </p>
+            <div className="h-[2px] w-48 bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent mx-auto" />
+          </div>
 
-          <div className="flex flex-col gap-6 w-80">
-            <button
-              onClick={() => startGame()}
-              className="w-full px-8 py-4 bg-fuchsia-500/20 border-2 border-fuchsia-400 text-fuchsia-400 text-xl font-bold rounded hover:bg-fuchsia-400 hover:text-black transition-all duration-200 shadow-[0_0_15px_rgba(232,121,249,0.5)]"
+          {/* Lobby Selection Container */}
+          <div className="flex flex-col md:flex-row gap-6 max-w-4xl w-full justify-center mb-8 animate-[fade-in_0.6s_ease-out]">
+            
+            {/* Solo Link Card */}
+            <div 
+              onClick={() => setSelectedMode('single')}
+              className={`relative flex flex-col p-6 rounded-2xl border-2 cursor-pointer transition-all duration-300 w-full md:w-80 bg-black/40 backdrop-blur-md hover:translate-y-[-4px] select-none ${
+                selectedMode === 'single' 
+                  ? 'border-fuchsia-500 shadow-[0_0_25px_rgba(217,70,239,0.3)] bg-fuchsia-950/10' 
+                  : 'border-fuchsia-500/20 hover:border-fuchsia-500/40 hover:shadow-[0_0_15px_rgba(217,70,239,0.15)] bg-black/40'
+              }`}
             >
-              PLAY NOW
-            </button>
+              {/* Glow Indicator */}
+              {selectedMode === 'single' && (
+                <div className="absolute top-3 right-3 w-3 h-3 bg-fuchsia-500 rounded-full shadow-[0_0_8px_rgba(217,70,239,0.8)] animate-pulse" />
+              )}
+              
+              <h2 className="text-2xl font-black text-fuchsia-400 mb-2 uppercase tracking-wide">
+                SOLO LINK
+              </h2>
+              <p className="text-gray-400 text-xs leading-relaxed mb-4 min-h-[40px]">
+                Deploy offline against autonomous tactical AI drones. Perfect for raw reflex and weapon practice.
+              </p>
+              
+              <div className="h-[1px] bg-gradient-to-r from-fuchsia-500/20 to-transparent mb-4" />
+              
+              <ul className="text-[11px] text-fuchsia-300/80 font-bold tracking-wide flex flex-col gap-2 uppercase">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
+                  Offline Sandbox Mode
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
+                  8 Active Drone Targets
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
+                  No Latency / Local Client
+                </li>
+              </ul>
+            </div>
+
+            {/* Multi Link Card */}
+            <div 
+              onClick={() => setSelectedMode('online')}
+              className={`relative flex flex-col p-6 rounded-2xl border-2 cursor-pointer transition-all duration-300 w-full md:w-80 bg-black/40 backdrop-blur-md hover:translate-y-[-4px] select-none ${
+                selectedMode === 'online' 
+                  ? 'border-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.3)] bg-cyan-950/10' 
+                  : 'border-cyan-500/20 hover:border-cyan-400/40 hover:shadow-[0_0_15px_rgba(34,211,238,0.15)] bg-black/40'
+              }`}
+            >
+              {/* Glow Indicator */}
+              {selectedMode === 'online' && (
+                <div className="absolute top-3 right-3 w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse" />
+              )}
+              
+              <h2 className="text-2xl font-black text-cyan-400 mb-2 uppercase tracking-wide">
+                MULTI LINK
+              </h2>
+              <p className="text-gray-400 text-xs leading-relaxed mb-4 min-h-[40px]">
+                Sync onto the global grid. Hunt tactical drones alongside other players in real-time.
+              </p>
+              
+              <div className="h-[1px] bg-gradient-to-r from-cyan-500/20 to-transparent mb-4" />
+              
+              <ul className="text-[11px] text-cyan-300/80 font-bold tracking-wide flex flex-col gap-2 uppercase">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                  Synchronized Grid Match
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                  Real-time Global Leaderboard
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                  Cooperative Drone Hunt
+                </li>
+              </ul>
+            </div>
+
+          </div>
+
+          {/* Sliding Action Button Section */}
+          <div className="h-20 w-full max-w-sm flex items-center justify-center relative overflow-hidden">
+            <div className={`w-full transition-all duration-500 transform ${
+              selectedMode 
+                ? 'translate-y-0 opacity-100' 
+                : 'translate-y-8 opacity-0 pointer-events-none'
+            }`}>
+              <button
+                onClick={() => {
+                  if (selectedMode) {
+                    startGame(selectedMode);
+                  }
+                }}
+                className={`w-full py-4 text-lg font-black tracking-widest rounded-xl border-2 transition-all duration-300 active:scale-95 cursor-pointer ${
+                  selectedMode === 'single'
+                    ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-400 hover:bg-fuchsia-400 hover:text-black hover:shadow-[0_0_30px_rgba(217,70,239,0.6)] shadow-[0_0_15px_rgba(217,70,239,0.3)]'
+                    : 'bg-cyan-500/20 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black hover:shadow-[0_0_30px_rgba(34,211,238,0.6)] shadow-[0_0_15px_rgba(34,211,238,0.3)]'
+                }`}
+                style={{
+                  animation: 'pulse-glow 2s infinite ease-in-out'
+                }}
+              >
+                INITIALIZE LINK
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Info/Controls Footer */}
+          <div className="mt-8 text-center text-[10px] text-gray-500 uppercase tracking-widest font-bold flex gap-4 animate-[fade-in_0.8s_ease-out]">
+            <span>WASD: Move</span>
+            <span>•</span>
+            <span>Mouse: Look & Shoot</span>
+            <span>•</span>
+            <span>Esc: Release Mouse</span>
           </div>
         </div>
       )}
@@ -239,8 +359,12 @@ export default function App() {
           </div>
           <button
             id="start-button"
-            onClick={() => startGame()}
-            className="px-8 py-4 bg-cyan-500/20 border-2 border-cyan-400 text-cyan-400 text-xl font-bold rounded hover:bg-cyan-400 hover:text-black transition-all duration-200"
+            onClick={() => startGame(gameMode || 'online')}
+            className={`px-8 py-4 border-2 text-xl font-bold rounded hover:text-black transition-all duration-200 cursor-pointer ${
+              gameMode === 'single'
+                ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-400 hover:bg-fuchsia-400 hover:shadow-[0_0_25px_rgba(217,70,239,0.5)] shadow-[0_0_15px_rgba(217,70,239,0.2)]'
+                : 'bg-cyan-500/20 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black hover:shadow-[0_0_25px_rgba(34,211,238,0.5)] shadow-[0_0_15px_rgba(34,211,238,0.2)]'
+            }`}
           >
             PLAY AGAIN
           </button>

@@ -263,9 +263,18 @@ export function Player() {
     return () => window.removeEventListener('mousedown', handleClick);
   }, [gameState, playerState, camera, world, rapier, hitEnemy, addParticles, addLaser]);
 
+  // Synchronize physics rigid body position when game starts or respawns occur
+  useEffect(() => {
+    if (gameState === 'playing' && playerState === 'active' && body.current) {
+      const storePos = useGameStore.getState().playerPosition;
+      body.current.setTranslation({ x: storePos[0], y: storePos[1], z: storePos[2] }, true);
+      body.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  }, [gameState, playerState]);
+
   return (
     <>
-      {!isTouchDevice.current && (
+      {!isTouchDevice.current && gameState === 'playing' && (
         <PointerLockControls 
           onLock={() => setPointerLocked(true)} 
           onUnlock={() => setPointerLocked(false)} 

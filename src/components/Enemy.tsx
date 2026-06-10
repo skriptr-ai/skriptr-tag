@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, RapierRigidBody, useRapier, CapsuleCollider } from '@react-three/rapier';
 import * as THREE from 'three';
@@ -40,6 +40,21 @@ export function Enemy({ data }: { data: EnemyData }) {
       data.position[1],
       data.position[2] + (Math.random() - 0.5) * 10
     );
+  }, [data.position]);
+
+  // Sync physics body position with store position (e.g. for respawning)
+  useEffect(() => {
+    if (body.current) {
+      body.current.setTranslation({ x: data.position[0], y: data.position[1], z: data.position[2] }, true);
+      body.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      
+      // Also reset patrol target to be near the new spawn
+      patrolTarget.current.set(
+        data.position[0] + (Math.random() - 0.5) * 10,
+        data.position[1],
+        data.position[2] + (Math.random() - 0.5) * 10
+      );
+    }
   }, [data.position]);
 
   useFrame((state_fiber) => {
