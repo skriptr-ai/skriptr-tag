@@ -67,6 +67,7 @@ interface GameStore {
   headshotAlerts: { id: string; timestamp: number }[];
   playerPosition: [number, number, number];
   playerRotation: number;
+  playerPositionEpoch: number;
   isPointerLocked: boolean;
   setPointerLocked: (locked: boolean) => void;
   
@@ -94,6 +95,7 @@ interface GameStore {
   updateEnemies: (time: number) => void;
   cleanupEffects: (time: number) => void;
   setPlayerState: (state: EntityState) => void;
+  forceRespawn: () => void;
   
   // Multiplayer actions
   updatePlayerPosition: (position: [number, number, number], rotation: number) => void;
@@ -400,6 +402,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   headshotAlerts: [],
   playerPosition: [0, 2, 0],
   playerRotation: 0,
+  playerPositionEpoch: 0,
   isPointerLocked: false,
 
   // Aiming & Weapon Heat States
@@ -465,6 +468,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         otherPlayers: {},
         isPointerLocked: false,
         playerPosition: [playerSpawn[0], 2, playerSpawn[2]],
+        playerPositionEpoch: Date.now(),
       });
       return;
     }
@@ -789,6 +793,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         enemies, 
         playerState: 'active', 
         playerPosition: nextPlayerPosition,
+        playerPositionEpoch: Date.now(),
         events: [...state.events, newEvent],
         otherPlayers: playersChanged ? otherPlayers : state.otherPlayers 
       };
@@ -827,6 +832,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
   }),
 
   setPlayerState: (playerState) => set({ playerState }),
+  
+  forceRespawn: () => {
+    const spawns = SPAWN_LOCATIONS;
+    const safeSpawn = findSafeSpawn(spawns, get().enemies);
+    const nextPlayerPosition: [number, number, number] = [safeSpawn[0], 2, safeSpawn[2]];
+    
+    const newEvent = { 
+      id: Math.random().toString(), 
+      message: "Emergency warp initiated. Relocated safely.", 
+      timestamp: Date.now() 
+    };
+    
+    set({
+      playerPosition: nextPlayerPosition,
+      playerState: 'active',
+      playerDisabledUntil: 0,
+      playerPositionEpoch: Date.now(),
+      events: [...get().events, newEvent]
+    });
+  },
   
   setPointerLocked: (isPointerLocked) => set((state) => ({
     isPointerLocked,

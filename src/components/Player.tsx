@@ -26,6 +26,7 @@ export function Player() {
   const setPointerLocked = useGameStore(state => state.setPointerLocked);
   const isPointerLocked = useGameStore(state => state.isPointerLocked);
   const setAiming = useGameStore(state => state.setAiming);
+  const playerPositionEpoch = useGameStore(state => state.playerPositionEpoch || 0);
 
   const keys = useRef({ 
     w: false, a: false, s: false, d: false,
@@ -316,14 +317,13 @@ export function Player() {
     };
   }, [gameState, playerState, setAiming, camera, world, rapier, hitEnemy, addParticles, addLaser]);
 
-  // Synchronize physics rigid body position when game starts or respawns occur
   useEffect(() => {
     if (gameState === 'playing' && playerState === 'active' && body.current) {
       const storePos = useGameStore.getState().playerPosition;
       body.current.setTranslation({ x: storePos[0], y: storePos[1], z: storePos[2] }, true);
       body.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
     }
-  }, [gameState, playerState]);
+  }, [gameState, playerState, playerPositionEpoch]);
 
   return (
     <>

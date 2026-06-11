@@ -27,6 +27,7 @@ function HUD() {
   const weaponHeat = useGameStore(state => state.weaponHeat);
   const isOverheated = useGameStore(state => state.isOverheated);
   const enemies = useGameStore(state => state.enemies);
+  const forceRespawn = useGameStore(state => state.forceRespawn);
 
   const fullLeaderboard = useMemo(() => {
     const list = [
@@ -188,12 +189,22 @@ function HUD() {
             TIME: {Math.floor(timeLeft / 60)}:{(Math.floor(timeLeft) % 60).toString().padStart(2, '0')}
           </div>
         )}
-        <button
-          onClick={leaveGame}
-          className="px-2 py-1 md:px-4 md:py-2 bg-red-500/20 border border-red-500 text-red-500 text-xs md:text-sm font-bold rounded hover:bg-red-500 hover:text-black transition-all duration-200"
-        >
-          LEAVE
-        </button>
+        <div className="flex gap-2">
+          {gameState === 'playing' && (
+            <button
+              onClick={forceRespawn}
+              className="px-2 py-1 md:px-4 md:py-2 bg-fuchsia-500/20 border border-fuchsia-400 text-fuchsia-400 text-xs md:text-sm font-bold rounded hover:bg-fuchsia-400 hover:text-black hover:shadow-[0_0_15px_rgba(217,70,239,0.4)] transition-all duration-200 uppercase tracking-widest"
+            >
+              RESPAWN
+            </button>
+          )}
+          <button
+            onClick={leaveGame}
+            className="px-2 py-1 md:px-4 md:py-2 bg-red-500/20 border border-red-500 text-red-500 text-xs md:text-sm font-bold rounded hover:bg-red-500 hover:text-black transition-all duration-200"
+          >
+            LEAVE
+          </button>
+        </div>
         {!isMobile && <div className="text-cyan-400/50 text-xs mt-1 pointer-events-none uppercase tracking-widest font-bold">ESC to unlock cursor</div>}
 
         {/* Event Log */}
