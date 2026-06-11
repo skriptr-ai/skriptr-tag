@@ -23,7 +23,6 @@ export function Enemy({ data }: { data: EnemyData }) {
 
   const groupRef = useRef<THREE.Group>(null);
   const aimingStartTime = useRef<number | null>(null);
-  const warningLaserRef = useRef<THREE.Mesh>(null);
 
   // Stats determined by drone class type
   const { speed, chaseRange, shootDist, shootCooldown, isHunter } = useMemo(() => {
@@ -105,9 +104,6 @@ export function Enemy({ data }: { data: EnemyData }) {
       }
       if (aimingStartTime.current !== null) {
         aimingStartTime.current = null;
-        if (warningLaserRef.current) {
-          warningLaserRef.current.visible = false;
-        }
       }
       return;
     }
@@ -217,11 +213,8 @@ export function Enemy({ data }: { data: EnemyData }) {
       // If already telegraphing the shot
       if (aimingStartTime.current !== null) {
         if (!hasLOS) {
-          // If we lost line of sight, immediately stop aiming and turn off pre-fire warning laser!
+          // If we lost line of sight, immediately stop aiming
           aimingStartTime.current = null;
-          if (warningLaserRef.current) {
-            warningLaserRef.current.visible = false;
-          }
         } else {
           const elapsed = now - aimingStartTime.current;
 
@@ -288,48 +281,17 @@ export function Enemy({ data }: { data: EnemyData }) {
 
             aimingStartTime.current = null;
             lastShootTime.current = now;
-            if (warningLaserRef.current) {
-              warningLaserRef.current.visible = false;
-            }
-          } else {
-            // Telegraph state: Update pre-fire line to track player eye level
-            if (warningLaserRef.current) {
-              warningLaserRef.current.visible = true;
-              const s = new THREE.Vector3(currentPos.x, currentPos.y + (isHunter ? 1.95 : 1.65), currentPos.z);
-              const e = camera.position.clone();
-              const length = s.distanceTo(e);
-              
-              warningLaserRef.current.position.copy(s.clone().lerp(e, 0.5));
-              const rayDir = e.clone().sub(s).normalize();
-              const quaternion = new THREE.Quaternion().setFromUnitVectors(
-                new THREE.Vector3(0, 1, 0),
-                rayDir
-              );
-              warningLaserRef.current.quaternion.copy(quaternion);
-              warningLaserRef.current.scale.set(1, length, 1);
-              
-              // Pulsing opacity warning
-              const mat = warningLaserRef.current.material as THREE.MeshBasicMaterial;
-              mat.opacity = 0.4 + Math.sin(state_fiber.clock.getElapsedTime() * 30) * 0.3;
-            }
           }
         }
       } else {
         // Ready to initiate shoot telegraph
         if (closestDist < shootDist && now - lastShootTime.current > shootCooldown && hasLOS) {
           aimingStartTime.current = now;
-        } else {
-          if (warningLaserRef.current) {
-            warningLaserRef.current.visible = false;
-          }
         }
       }
     } else {
       // Patrol
       const now = Date.now();
-      if (warningLaserRef.current) {
-        warningLaserRef.current.visible = false;
-      }
       if (aimingStartTime.current !== null) {
         aimingStartTime.current = null;
       }
@@ -382,12 +344,6 @@ export function Enemy({ data }: { data: EnemyData }) {
       />
       
       <group ref={groupRef} position={[0, 0, 0]}>
-        {/* PRE-FIRE AIMING telegraph laser sight line */}
-        <mesh ref={warningLaserRef} visible={false}>
-          <cylinderGeometry args={[0.012, 0.012, 1, 4]} />
-          <meshBasicMaterial color="#ff2200" transparent opacity={0.6} toneMapped={false} />
-        </mesh>
-
         {/* 1. Head (Top Segment) */}
         <mesh castShadow position={[0, isHunter ? 1.95 : 1.65, 0]}>
           <sphereGeometry args={[isHunter ? 0.3 : 0.25, 16, 16]} />
