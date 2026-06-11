@@ -281,8 +281,37 @@ export default function App() {
   const gameMode = useGameStore(state => state.gameMode);
   const score = useGameStore(state => state.score);
   const startGame = useGameStore(state => state.startGame);
+  const leaveGame = useGameStore(state => state.leaveGame);
+  const enemies = useGameStore(state => state.enemies);
+  const otherPlayers = useGameStore(state => state.otherPlayers);
+  const winnerName = useGameStore(state => state.winnerName);
   const isMobile = useIsMobile();
   const [selectedMode, setSelectedMode] = useState<'single' | 'online' | null>(null);
+
+  const finalLeaderboard = useMemo(() => {
+    const list = [
+      { name: 'You', score: score, isMe: true }
+    ];
+
+    if (gameMode === 'single') {
+      list.push(...enemies.map(e => ({
+        name: e.name || e.id,
+        score: e.score || 0,
+        isMe: false
+      })));
+    } else {
+      list.push(...Object.values(otherPlayers).map(p => ({
+        name: p.name,
+        score: p.score,
+        isMe: false
+      })));
+    }
+
+    return list.sort((a, b) => b.score - a.score);
+  }, [score, enemies, otherPlayers, gameMode]);
+
+  const winner = winnerName || (finalLeaderboard[0]?.name || 'Unknown');
+  const isMeWinner = winner === 'You';
 
   return (
     <div className="w-screen h-screen bg-black relative overflow-hidden font-mono select-none">
@@ -447,24 +476,95 @@ export default function App() {
       )}
 
       {gameState === 'gameover' && (
-        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-10 pointer-events-auto">
-          <h1 className="text-6xl font-black text-red-500 mb-4 drop-shadow-[0_0_20px_rgba(239,68,68,0.8)] tracking-tighter">
-            GAME OVER
-          </h1>
-          <div className="text-3xl text-cyan-400 mb-8 font-bold">
-            FINAL SCORE: {score}
+        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-10 pointer-events-auto px-4 py-8 animate-[fade-in_0.4s_ease-out]">
+          <div className={`relative max-w-lg w-full p-8 rounded-3xl border bg-black/40 backdrop-blur-xl flex flex-col items-center gap-6 shadow-[0_0_50px_rgba(0,0,0,0.9)] transition-all duration-300 ${
+            isMeWinner 
+              ? 'border-cyan-500/30 shadow-[0_0_30px_rgba(34,211,238,0.2)]' 
+              : 'border-fuchsia-500/30 shadow-[0_0_30px_rgba(217,70,239,0.2)]'
+          }`}>
+            {/* Header Title with neon glow */}
+            <div className="text-center flex flex-col gap-1">
+              <h1 className={`text-4xl md:text-5xl font-black tracking-widest uppercase select-none animate-pulse ${
+                isMeWinner 
+                  ? 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-yellow-300 to-cyan-400 drop-shadow-[0_0_12px_rgba(34,211,238,0.6)]' 
+                  : 'text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 via-red-500 to-fuchsia-400 drop-shadow-[0_0_12px_rgba(217,70,239,0.6)]'
+              }`}>
+                {isMeWinner ? 'VICTORY ACHIEVED' : 'MATCH CONCLUDED'}
+              </h1>
+              <span className="text-gray-500 text-[10px] font-black tracking-widest uppercase">
+                {gameMode === 'single' ? 'SANDBOX SESSION COMPLETED' : 'MULTIPLAYER LINK TERMINATED'}
+              </span>
+            </div>
+
+            <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-gray-700/50 to-transparent" />
+
+            {/* Winner Spotlight Section */}
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-[11px] text-gray-400 font-bold tracking-widest uppercase">WINNER SPOTLIGHT</span>
+              <div className={`px-6 py-3 rounded-2xl border flex items-center gap-3 shadow-md ${
+                isMeWinner 
+                  ? 'bg-cyan-950/10 border-cyan-400/40 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.1)]' 
+                  : 'bg-fuchsia-950/10 border-fuchsia-400/40 text-fuchsia-400 shadow-[0_0_15px_rgba(217,70,239,0.1)]'
+              }`}>
+                <span className="text-lg md:text-xl">🏆</span>
+                <span className="text-lg md:text-xl font-black tracking-wide uppercase truncate max-w-[200px]">
+                  {winner === 'You' ? 'YOU' : winner}
+                </span>
+                <span className="font-mono text-sm opacity-60">
+                  ({finalLeaderboard.find(p => p.name === winner || (p.isMe && winner === 'You'))?.score || 0} pts)
+                </span>
+              </div>
+            </div>
+
+            {/* Final Standings Leaderboard */}
+            <div className="w-full bg-black/60 border border-gray-800/40 rounded-2xl p-4 flex flex-col gap-2">
+              <div className="text-gray-400 text-[10px] font-black tracking-widest uppercase border-b border-gray-800/60 pb-1.5 mb-1 text-center">
+                FINAL STANDINGS
+              </div>
+              <div className="flex flex-col gap-1.5 max-h-[160px] overflow-y-auto pr-1">
+                {finalLeaderboard.slice(0, 5).map((p, i) => (
+                  <div 
+                    key={`${p.name}-${i}`} 
+                    className={`flex justify-between items-center px-2 py-1 rounded text-xs transition-colors ${
+                      p.name === winner || (p.isMe && winner === 'You')
+                        ? 'bg-yellow-500/10 text-yellow-400 font-bold'
+                        : p.isMe 
+                          ? 'bg-cyan-500/10 text-cyan-400 font-bold' 
+                          : 'text-gray-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="font-mono opacity-50 text-[10px] w-4">{i + 1}.</span>
+                      <span className="truncate">{p.name}</span>
+                      {p.isMe && <span className="text-[9px] bg-cyan-500/20 px-1.5 rounded ml-1">YOU</span>}
+                    </div>
+                    <span className="font-mono font-bold">{p.score}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-4 w-full">
+              <button
+                onClick={() => leaveGame()}
+                className="flex-1 py-3 border border-gray-700 text-gray-400 text-sm font-bold rounded-xl hover:bg-gray-800 hover:text-white transition-all duration-200 uppercase tracking-widest cursor-pointer"
+              >
+                MAIN MENU
+              </button>
+              <button
+                id="start-button"
+                onClick={() => startGame(gameMode || 'online')}
+                className={`flex-1 py-3 border-2 text-sm font-black rounded-xl transition-all duration-300 active:scale-95 cursor-pointer shadow-lg hover:text-black ${
+                  gameMode === 'single'
+                    ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-400 hover:bg-fuchsia-400 hover:shadow-[0_0_20px_rgba(217,70,239,0.5)] shadow-[0_0_15px_rgba(217,70,239,0.2)]'
+                    : 'bg-cyan-500/20 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.5)] shadow-[0_0_15px_rgba(34,211,238,0.2)]'
+                }`}
+              >
+                PLAY AGAIN
+              </button>
+            </div>
           </div>
-          <button
-            id="start-button"
-            onClick={() => startGame(gameMode || 'online')}
-            className={`px-8 py-4 border-2 text-xl font-bold rounded hover:text-black transition-all duration-200 cursor-pointer ${
-              gameMode === 'single'
-                ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-400 hover:bg-fuchsia-400 hover:shadow-[0_0_25px_rgba(217,70,239,0.5)] shadow-[0_0_15px_rgba(217,70,239,0.2)]'
-                : 'bg-cyan-500/20 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black hover:shadow-[0_0_25px_rgba(34,211,238,0.5)] shadow-[0_0_15px_rgba(34,211,238,0.2)]'
-            }`}
-          >
-            PLAY AGAIN
-          </button>
         </div>
       )}
     </div>

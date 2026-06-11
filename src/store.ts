@@ -111,6 +111,7 @@ interface GameStore {
     look: { x: number, y: number };
     shooting: boolean;
   }>) => void;
+  winnerName: string | null;
 }
 
 function mulberry32(a: number) {
@@ -434,6 +435,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   playerRotation: 0,
   playerPositionEpoch: 0,
   isPointerLocked: false,
+  winnerName: null,
 
   // Aiming & Weapon Heat States
   isAiming: false,
@@ -499,6 +501,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         isPointerLocked: false,
         playerPosition: [playerSpawn[0], 2, playerSpawn[2]],
         playerPositionEpoch: Date.now(),
+        winnerName: null,
       });
       return;
     }
@@ -628,6 +631,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
           newState.otherPlayers = players;
         }
 
+        // Check for 1000 points winning condition
+        if (data.shooterScore >= 1000) {
+          if (newSocket) {
+            newSocket.disconnect();
+          }
+          return {
+            ...newState,
+            gameState: 'gameover' as GameState,
+            winnerName: shooterName,
+            socket: null,
+            isPointerLocked: false,
+            events: [...state.events, newEvent, { id: Math.random().toString(), message: `${shooterName} HAS WON THE MATCH!`, timestamp: Date.now() }]
+          };
+        }
+
         return newState;
       });
     });
@@ -659,6 +677,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       otherPlayers: {},
       isPointerLocked: false,
       headshotAlerts: [],
+      winnerName: null,
     });
   },
 
@@ -688,7 +707,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       score: 0,
       timeLeft: 120,
       playerState: 'active',
-      isPointerLocked: false
+      isPointerLocked: false,
+      winnerName: null
     });
   },
 
@@ -721,10 +741,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
     }
 
+    const nextScore = Math.max(0, state.score - 200);
+
+    // Check if a bot reached 1000 points
+    const winningBot = updatedEnemies.find(e => (e.score || 0) >= 1000);
+    if (winningBot) {
+      if (state.socket) state.socket.disconnect();
+      return {
+        playerState: 'disabled',
+        score: nextScore,
+        enemies: updatedEnemies,
+        events: [...newEvents, { id: Math.random().toString(), message: `${winningBot.name || winningBot.id} HAS WON THE MATCH!`, timestamp: Date.now() }],
+        gameState: 'gameover' as GameState,
+        winnerName: winningBot.name || winningBot.id,
+        socket: null,
+        isPointerLocked: false
+      };
+    }
+
     return {
       playerState: 'disabled',
       playerDisabledUntil: Date.now() + 3000,
-      score: Math.max(0, state.score - 200), // Penalty for getting hit raised to -200
+      score: nextScore,
       enemies: updatedEnemies,
       events: newEvents
     };
@@ -767,9 +805,42 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const newEvents = [...state.events, { id: Math.random().toString(), message, timestamp: Date.now() }];
     const newAlerts = byPlayer && isHeadshot ? [...(state.headshotAlerts || []), { id: Math.random().toString(), timestamp: Date.now() }] : (state.headshotAlerts || []);
 
+    const nextScore = byPlayer ? state.score + points : state.score;
+
+    if (byPlayer && nextScore >= 1000) {
+      if (state.socket) state.socket.disconnect();
+      return {
+        enemies,
+        score: nextScore,
+        events: [...newEvents, { id: Math.random().toString(), message: `YOU HAVE WON THE MATCH!`, timestamp: Date.now() }],
+        headshotAlerts: newAlerts,
+        gameState: 'gameover' as GameState,
+        winnerName: 'You',
+        socket: null,
+        isPointerLocked: false
+      };
+    }
+
+    if (shooterId) {
+      const winningBot = enemies.find(e => (e.score || 0) >= 1000);
+      if (winningBot) {
+        if (state.socket) state.socket.disconnect();
+        return {
+          enemies,
+          score: nextScore,
+          events: [...newEvents, { id: Math.random().toString(), message: `${winningBot.name || winningBot.id} HAS WON THE MATCH!`, timestamp: Date.now() }],
+          headshotAlerts: newAlerts,
+          gameState: 'gameover' as GameState,
+          winnerName: winningBot.name || winningBot.id,
+          socket: null,
+          isPointerLocked: false
+        };
+      }
+    }
+
     return {
       enemies,
-      score: byPlayer ? state.score + points : state.score,
+      score: nextScore,
       events: newEvents,
       headshotAlerts: newAlerts
     };
