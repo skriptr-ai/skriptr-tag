@@ -13,7 +13,6 @@ function HUD() {
   const gameState = useGameStore(state => state.gameState);
   const gameMode = useGameStore(state => state.gameMode);
   const score = useGameStore(state => state.score);
-  const timeLeft = useGameStore(state => state.timeLeft);
   const playerState = useGameStore(state => state.playerState);
   const otherPlayers = useGameStore(state => state.otherPlayers);
   const events = useGameStore(state => state.events);
@@ -182,13 +181,8 @@ function HUD() {
         )}
       </div>
       
-      {/* HUD Right - Time, Leave, Events */}
+      {/* HUD Right - Leave, Events */}
       <div className="absolute top-2 right-2 md:top-4 md:right-4 flex flex-col items-end gap-1 md:gap-2 pointer-events-auto z-20">
-        {gameState === 'playing' && (
-          <div className="text-cyan-400 text-lg md:text-2xl font-bold drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] pointer-events-none">
-            TIME: {Math.floor(timeLeft / 60)}:{(Math.floor(timeLeft) % 60).toString().padStart(2, '0')}
-          </div>
-        )}
         <div className="flex gap-2">
           {gameState === 'playing' && (
             <button

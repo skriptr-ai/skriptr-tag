@@ -712,15 +712,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  updateTime: (delta) => set((state) => {
-    if (state.gameState !== 'playing') return state;
-    const newTime = state.timeLeft - delta;
-    if (newTime <= 0) {
-      if (state.socket) state.socket.disconnect();
-      return { timeLeft: 0, gameState: 'gameover', socket: null, roomId: null };
-    }
-    return { timeLeft: newTime };
-  }),
+  updateTime: (delta) => {},
 
   hitPlayer: (botId) => set((state) => {
     if (state.playerState === 'disabled' || state.gameState !== 'playing') return state;
