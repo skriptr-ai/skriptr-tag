@@ -335,6 +335,36 @@ function findSafeSpawn(spawns: [number, number, number][], enemies: EnemyData[])
   return scoredSpawns[randomIndex].spawn;
 }
 
+function findSafeSpawnMultiplayer(spawns: [number, number, number][], otherPlayers: Record<string, PlayerData>): [number, number, number] {
+  const activePlayers = Object.values(otherPlayers).filter(p => p.state === 'active');
+  if (activePlayers.length === 0) {
+    return spawns[Math.floor(Math.random() * spawns.length)];
+  }
+
+  // Calculate the minimum distance to any active player for each spawn
+  const scoredSpawns = spawns.map(spawn => {
+    let minDistance = Infinity;
+    for (const player of activePlayers) {
+      if (!player.position) continue;
+      const dx = spawn[0] - player.position[0];
+      const dz = spawn[2] - player.position[2];
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < minDistance) {
+        minDistance = dist;
+      }
+    }
+    return { spawn, minDistance };
+  });
+
+  // Sort by minDistance descending (safest spawns first)
+  scoredSpawns.sort((a, b) => b.minDistance - a.minDistance);
+
+  // Pick a random spawn from the top 15 safest spawns to ensure variety
+  const poolSize = Math.min(15, scoredSpawns.length);
+  const randomIndex = Math.floor(Math.random() * poolSize);
+  return scoredSpawns[randomIndex].spawn;
+}
+
 function findSafeSpawnForBot(
   spawns: [number, number, number][],
   playerPosition: [number, number, number],
@@ -490,15 +520,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     newSocket.on('gameJoined', (players: Record<string, PlayerData>) => {
       const otherPlayers = { ...players };
       delete otherPlayers[newSocket!.id!];
+      
+      const spawns = SPAWN_LOCATIONS;
+      const safeSpawn = findSafeSpawnMultiplayer(spawns, otherPlayers);
+      const playerSpawn: [number, number, number] = [safeSpawn[0], 2, safeSpawn[2]];
+
       set({ 
         otherPlayers,
         gameState: 'playing',
         gameMode: 'online',
         timeLeft: 120,
         score: 0,
-        enemies: INITIAL_ENEMIES.map(e => ({ ...e, state: 'active', disabledUntil: 0, type: 'seeker' as const })),
-        headshotAlerts: []
+        enemies: [],
+        headshotAlerts: [],
+        playerPosition: playerSpawn,
+        playerPositionEpoch: Date.now()
       });
+
+      newSocket!.emit('updatePosition', { position: playerSpawn, rotation: 0 });
     });
 
     newSocket.on('playerJoined', (player: PlayerData) => {
@@ -531,7 +570,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }));
     });
 
-    newSocket.on('playerHit', (data: { targetId: string, shooterId: string, targetDisabledUntil: number, shooterScore: number }) => {
+    newSocket.on('playerHit', (data: { targetId: string, shooterId: string, targetDisabledUntil: number, shooterScore: number, isHeadshot?: boolean }) => {
       set(state => {
         const now = Date.now();
         const isLocalShooter = data.shooterId === newSocket!.id;
@@ -539,7 +578,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         
         const shooterName = isLocalShooter ? 'You' : (state.otherPlayers[data.shooterId]?.name || 'Unknown');
         const targetName = isLocalTarget ? 'You' : (state.otherPlayers[data.targetId]?.name || 'Unknown');
-        const eventMsg = `${shooterName} tagged ${targetName}`;
+        
+        const isHeadshot = !!data.isHeadshot;
+        const eventMsg = isHeadshot 
+          ? `HEADSHOT! ${shooterName} tagged ${targetName}` 
+          : `${shooterName} tagged ${targetName}`;
         const newEvent = { id: Math.random().toString(), message: eventMsg, timestamp: now };
 
         let newState: Partial<GameStore> = {
@@ -554,6 +597,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (isLocalShooter) {
           newState.score = data.shooterScore;
         }
+
+        const newAlerts = isLocalShooter && isHeadshot 
+          ? [...(state.headshotAlerts || []), { id: Math.random().toString(), timestamp: now }] 
+          : (state.headshotAlerts || []);
+        newState.headshotAlerts = newAlerts;
 
         // Update other players' states
         const players = { ...state.otherPlayers };
@@ -603,7 +651,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       timeLeft: 120,
       playerState: 'active',
       playerDisabledUntil: 0,
-      enemies: INITIAL_ENEMIES.map(e => ({ ...e, state: 'active', disabledUntil: 0, type: 'seeker' as const })),
+      enemies: [],
       lasers: [],
       particles: [],
       events: [],
@@ -687,7 +735,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     
     // Check if it's a multiplayer player
     if (state.socket && state.otherPlayers[id]) {
-      state.socket.emit('hitPlayer', id);
+      state.socket.emit('hitPlayer', { targetId: id, isHeadshot });
       return state;
     }
 
@@ -780,7 +828,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
 
     if (state.playerState === 'disabled' && time > state.playerDisabledUntil) {
-      const safeSpawn = findSafeSpawn(SPAWN_LOCATIONS, state.enemies);
+      const isOnline = state.gameMode === 'online';
+      const safeSpawn = isOnline 
+        ? findSafeSpawnMultiplayer(SPAWN_LOCATIONS, state.otherPlayers)
+        : findSafeSpawn(SPAWN_LOCATIONS, state.enemies);
       const nextPlayerPosition: [number, number, number] = [safeSpawn[0], 2, safeSpawn[2]];
       
       const newEvent = { 
@@ -788,6 +839,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         message: "You respawned at a new sector", 
         timestamp: Date.now() 
       };
+
+      if (isOnline && state.socket) {
+        state.socket.emit('updatePosition', { position: nextPlayerPosition, rotation: 0 });
+      }
       
       return { 
         enemies, 
@@ -835,7 +890,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   
   forceRespawn: () => {
     const spawns = SPAWN_LOCATIONS;
-    const safeSpawn = findSafeSpawn(spawns, get().enemies);
+    const isOnline = get().gameMode === 'online';
+    const safeSpawn = isOnline 
+      ? findSafeSpawnMultiplayer(spawns, get().otherPlayers)
+      : findSafeSpawn(spawns, get().enemies);
     const nextPlayerPosition: [number, number, number] = [safeSpawn[0], 2, safeSpawn[2]];
     
     const newEvent = { 
@@ -843,6 +901,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       message: "Emergency warp initiated. Relocated safely.", 
       timestamp: Date.now() 
     };
+
+    const socket = get().socket;
+    if (isOnline && socket) {
+      socket.emit('updatePosition', { position: nextPlayerPosition, rotation: 0 });
+    }
     
     set({
       playerPosition: nextPlayerPosition,
