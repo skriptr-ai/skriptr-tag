@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { io, Socket } from 'socket.io-client';
+import { BOT_NAMES } from './botNames';
 
 export type GameState = 'menu' | 'playing' | 'gameover';
 export type EntityState = 'active' | 'disabled';
@@ -16,6 +17,8 @@ export interface EnemyData {
   state: EntityState;
   disabledUntil: number;
   type?: 'seeker' | 'hunter';
+  name?: string;
+  score?: number;
 }
 
 export interface PlayerData {
@@ -83,8 +86,8 @@ interface GameStore {
   endGame: () => void;
   leaveGame: () => void;
   updateTime: (delta: number) => void;
-  hitPlayer: () => void;
-  hitEnemy: (id: string, byPlayer?: boolean, isHeadshot?: boolean) => void;
+  hitPlayer: (botId?: string) => void;
+  hitEnemy: (id: string, byPlayer?: boolean, isHeadshot?: boolean, shooterId?: string) => void;
   addLaser: (start: [number, number, number], end: [number, number, number], color: string) => void;
   addParticles: (position: [number, number, number], color: string) => void;
   addEvent: (message: string) => void;
@@ -284,13 +287,18 @@ function generateInitialEnemies(spawns: [number, number, number][]): EnemyData[]
     
     // 20% are elite hunters (every 5th bot)
     const type = (botIndex % 5 === 0) ? 'hunter' : 'seeker';
+    
+    // Assign curated famous tech entrepreneur name
+    const name = BOT_NAMES[botIndex - 1] || `Bot ${botIndex}`;
 
     enemies.push({
       id: `bot-${botIndex++}`,
       position: spawns[i],
       state: 'active',
       disabledUntil: 0,
-      type
+      type,
+      name,
+      score: 0
     });
   }
   return enemies;
@@ -642,16 +650,35 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return { timeLeft: newTime };
   }),
 
-  hitPlayer: () => set((state) => {
+  hitPlayer: (botId) => set((state) => {
     if (state.playerState === 'disabled' || state.gameState !== 'playing') return state;
+    
+    let updatedEnemies = state.enemies;
+    let newEvents = state.events;
+    
+    if (botId) {
+      const bot = state.enemies.find(e => e.id === botId);
+      const botName = bot?.name || botId;
+      newEvents = [...state.events, { id: Math.random().toString(), message: `${botName} tagged you!`, timestamp: Date.now() }];
+      
+      updatedEnemies = state.enemies.map(e => {
+        if (e.id === botId) {
+          return { ...e, score: (e.score || 0) + 100 };
+        }
+        return e;
+      });
+    }
+
     return {
       playerState: 'disabled',
       playerDisabledUntil: Date.now() + 3000,
       score: Math.max(0, state.score - 200), // Penalty for getting hit raised to -200
+      enemies: updatedEnemies,
+      events: newEvents
     };
   }),
 
-  hitEnemy: (id, byPlayer = false, isHeadshot = false) => set((state) => {
+  hitEnemy: (id, byPlayer = false, isHeadshot = false, shooterId) => set((state) => {
     if (state.gameState !== 'playing') return state;
     
     // Check if it's a multiplayer player
@@ -660,16 +687,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return state;
     }
 
+    const victim = state.enemies.find(e => e.id === id);
+    const victimName = victim?.name || id;
+
     const enemies = state.enemies.map(e => {
       if (e.id === id && e.state === 'active') {
         return { ...e, state: 'disabled' as EntityState, disabledUntil: Date.now() + 3000 };
+      }
+      if (shooterId && e.id === shooterId) {
+        return { ...e, score: (e.score || 0) + 100 };
       }
       return e;
     });
 
     const points = isHeadshot ? 200 : 100;
-    const message = isHeadshot ? `HEADSHOT! You tagged ${id}` : `You tagged ${id}`;
-    const newEvents = byPlayer ? [...state.events, { id: Math.random().toString(), message, timestamp: Date.now() }] : state.events;
+    let message = '';
+    if (byPlayer) {
+      message = isHeadshot ? `HEADSHOT! You tagged ${victimName}` : `You tagged ${victimName}`;
+    } else if (shooterId) {
+      const shooter = state.enemies.find(e => e.id === shooterId);
+      const shooterName = shooter?.name || shooterId;
+      message = `${shooterName} tagged ${victimName}`;
+    } else {
+      message = `${victimName} was disabled`;
+    }
+
+    const newEvents = [...state.events, { id: Math.random().toString(), message, timestamp: Date.now() }];
     const newAlerts = byPlayer && isHeadshot ? [...(state.headshotAlerts || []), { id: Math.random().toString(), timestamp: Date.now() }] : (state.headshotAlerts || []);
 
     return {

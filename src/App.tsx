@@ -26,18 +26,35 @@ function HUD() {
   const isAiming = useGameStore(state => state.isAiming);
   const weaponHeat = useGameStore(state => state.weaponHeat);
   const isOverheated = useGameStore(state => state.isOverheated);
+  const enemies = useGameStore(state => state.enemies);
 
-  const leaderboard = useMemo(() => {
-    const players = [
-      { id: 'You', score: score, isMe: true },
-      ...Object.values(otherPlayers).map(p => ({
-        id: p.name,
+  const fullLeaderboard = useMemo(() => {
+    const list = [
+      { name: 'You', score: score, isMe: true }
+    ];
+
+    if (gameMode === 'single') {
+      list.push(...enemies.map(e => ({
+        name: e.name || e.id,
+        score: e.score || 0,
+        isMe: false
+      })));
+    } else {
+      list.push(...Object.values(otherPlayers).map(p => ({
+        name: p.name,
         score: p.score,
         isMe: false
-      }))
-    ];
-    return players.sort((a, b) => b.score - a.score);
-  }, [score, otherPlayers]);
+      })));
+    }
+
+    return list.sort((a, b) => b.score - a.score);
+  }, [score, enemies, otherPlayers, gameMode]);
+
+  const topFive = useMemo(() => fullLeaderboard.slice(0, 5), [fullLeaderboard]);
+  
+  const myRank = useMemo(() => {
+    return fullLeaderboard.findIndex(p => p.isMe);
+  }, [fullLeaderboard]);
 
   return (
     <>
@@ -132,14 +149,34 @@ function HUD() {
         
         {/* Leaderboard - Hide on mobile if screen is small, or make smaller */}
         {!isMobile && (
-          <div className="bg-black/50 border border-cyan-900/50 p-3 rounded w-48 flex flex-col gap-1">
-            <div className="text-cyan-400/70 text-xs font-bold mb-1 border-b border-cyan-900/50 pb-1">LEADERBOARD</div>
-            {leaderboard.map((p, i) => (
-              <div key={p.id} className={`flex justify-between text-sm ${p.isMe ? 'text-cyan-400 font-bold' : 'text-cyan-400/70'}`}>
-                <span>{i + 1}. {p.id}</span>
+          <div className="bg-black/50 border border-cyan-900/50 p-3 rounded w-56 flex flex-col gap-1">
+            <div className="text-cyan-400/70 text-xs font-bold mb-1 border-b border-cyan-900/50 pb-1 uppercase tracking-widest">
+              LEADERBOARD
+            </div>
+            {topFive.map((p, i) => (
+              <div 
+                key={`${p.name}-${i}`} 
+                className={`flex justify-between text-sm ${
+                  p.isMe 
+                    ? 'text-cyan-400 font-bold drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]' 
+                    : 'text-cyan-400/70'
+                }`}
+              >
+                <span className="truncate max-w-[150px]">
+                  {i + 1}. {p.name}
+                </span>
                 <span>{p.score}</span>
               </div>
             ))}
+            {myRank >= 5 && (
+              <>
+                <div className="border-t border-cyan-900/30 my-1 pt-1" />
+                <div className="flex justify-between text-sm text-cyan-400 font-bold drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]">
+                  <span className="truncate max-w-[150px]">{myRank + 1}. You</span>
+                  <span>{score}</span>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, RapierRigidBody, useRapier, CapsuleCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useGameStore, EnemyData } from '../store';
-import { Text } from '@react-three/drei';
+import { Text, Billboard } from '@react-three/drei';
 
 export function Enemy({ data }: { data: EnemyData }) {
   const body = useRef<RapierRigidBody>(null);
@@ -250,7 +250,7 @@ export function Enemy({ data }: { data: EnemyData }) {
               if (rb && rb.userData) {
                 const userData = rb.userData as { name?: string };
                 if (userData.name === 'player') {
-                  hitPlayer();
+                  hitPlayer(data.id);
                   addParticles([camera.position.x, camera.position.y, camera.position.z], '#ff0000');
                   addLaser(
                     [startPos.x, startPos.y, startPos.z],
@@ -258,7 +258,7 @@ export function Enemy({ data }: { data: EnemyData }) {
                     '#ff0000'
                   );
                 } else if (userData.name?.startsWith('bot-')) {
-                  useGameStore.getState().hitEnemy(userData.name);
+                  useGameStore.getState().hitEnemy(userData.name, false, false, data.id);
                   const hitPoint = ray.pointAt(hit.timeOfImpact);
                   addParticles([hitPoint.x, hitPoint.y, hitPoint.z], '#ff0000');
                   addLaser(
@@ -439,17 +439,18 @@ export function Enemy({ data }: { data: EnemyData }) {
         )}
 
         {/* Username Label */}
-        <Text
-          position={[0, isHunter ? 3.05 : 2.65, 0]}
-          fontSize={0.3}
-          color={data.state === 'active' ? labelColor : '#666666'}
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.02}
-          outlineColor="#000000"
-        >
-          {data.id}
-        </Text>
+        <Billboard position={[0, isHunter ? 3.05 : 2.65, 0]}>
+          <Text
+            fontSize={0.3}
+            color={data.state === 'active' ? labelColor : '#666666'}
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.02}
+            outlineColor="#000000"
+          >
+            {data.name || data.id}
+          </Text>
+        </Billboard>
       </group>
     </RigidBody>
   );
