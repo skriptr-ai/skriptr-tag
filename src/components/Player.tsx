@@ -24,13 +24,21 @@ export function Player() {
   const hitEnemy = useGameStore(state => state.hitEnemy);
   const addParticles = useGameStore(state => state.addParticles);
   const setPointerLocked = useGameStore(state => state.setPointerLocked);
+  const isPointerLocked = useGameStore(state => state.isPointerLocked);
+  const setAiming = useGameStore(state => state.setAiming);
 
   const keys = useRef({ 
     w: false, a: false, s: false, d: false,
-    arrowup: false, arrowdown: false, arrowleft: false, arrowright: false 
+    arrowup: false, arrowdown: false, arrowleft: false, arrowright: false,
+    space: false
   });
   const lastEmitTime = useRef(0);
   const lastShootTime = useRef(0);
+
+  const lastSpaceTime = useRef(0);
+  const shouldJump = useRef(false);
+  const lastJumpTime = useRef(0);
+  const spaceReleased = useRef(true);
 
   const gunGroupRef = useRef<THREE.Group>(null);
   const gunVisualRef = useRef<THREE.Group>(null);
@@ -44,15 +52,42 @@ export function Player() {
                            navigator.maxTouchPoints > 0;
   }, []);
 
+  // Sync keys ref to match pointer lock state
+  useEffect(() => {
+    if (!isPointerLocked) {
+      keys.current = {
+        w: false, a: false, s: false, d: false,
+        arrowup: false, arrowdown: false, arrowleft: false, arrowright: false,
+        space: false
+      };
+    }
+  }, [isPointerLocked]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
+      if (e.repeat) return;
+      let key = e.key.toLowerCase();
+      if (key === ' ') {
+        key = 'space';
+        if (!spaceReleased.current) return;
+        spaceReleased.current = false;
+        
+        const now = Date.now();
+        if (now - lastSpaceTime.current < 250) {
+          shouldJump.current = true;
+        }
+        lastSpaceTime.current = now;
+      }
       if (key in keys.current) {
         keys.current[key as keyof typeof keys.current] = true;
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
+      let key = e.key.toLowerCase();
+      if (key === ' ') {
+        key = 'space';
+        spaceReleased.current = true;
+      }
       if (key in keys.current) {
         keys.current[key as keyof typeof keys.current] = false;
       }
@@ -74,6 +109,11 @@ export function Player() {
     // Rate limit shooting
     const now = Date.now();
     if (now - lastShootTime.current < 200) return;
+
+    // Check weapon overheat / add heat
+    const addShotHeat = useGameStore.getState().addShotHeat;
+    if (!addShotHeat()) return;
+
     lastShootTime.current = now;
 
     // Raycast from camera
@@ -112,13 +152,20 @@ export function Player() {
         const name = userData.name;
         
         if (name) {
+          const relativeY = hitPoint.y - rb.translation().y;
+          
           // Check if it's a bot
           if (name.startsWith('bot-')) {
-            hitEnemy(name, true);
+            const botData = useGameStore.getState().enemies.find(e => e.id === name);
+            const isHunter = botData?.type === 'hunter';
+            const threshold = isHunter ? 1.65 : 1.4;
+            const isHeadshot = relativeY > threshold;
+            hitEnemy(name, true, isHeadshot);
           } 
           // Check if it's another player (socket ID)
           else if (name !== 'player' && useGameStore.getState().otherPlayers[name]) {
-            hitEnemy(name, true);
+            const isHeadshot = relativeY > 1.4;
+            hitEnemy(name, true, isHeadshot);
           }
         }
       }
@@ -147,6 +194,7 @@ export function Player() {
 
     // Movement
     const velocity = body.current.linvel();
+    const pos = body.current.translation();
     
     const k = keys.current;
     
@@ -158,40 +206,7 @@ export function Player() {
     const right = new THREE.Vector3();
     right.crossVectors(forward, camera.up).normalize();
 
-    // Combine keyboard and joystick input
-    // Joystick Y is inverted (up is negative), so we negate it for forward movement
-    // Actually, in Joystick component: Up is negative Y.
-    // Forward movement should be positive.
-    // Let's assume Joystick Up -> y < 0.
-    // We want moveZ to be negative for forward.
-    // So if joystick.y is -1, moveZ should be -1.
-    // So we add joystick.y directly?
-    // Wait, standard WASD: W -> moveZ = -1 (forward in Threejs is -Z usually? No, camera looks down -Z).
-    // Yes, forward is -Z.
-    // W key: moveZ = -1.
-    // Joystick Up (y < 0): moveZ should be negative.
-    // So we add mobileInput.move.y.
-    
-    const moveZ = (k.w ? 1 : 0) - (k.s ? 1 : 0) + (mobileInput.move.y * -1); // Invert joystick Y to match W/S logic (W is +1 in my logic below? No wait)
-    
-    // Original logic:
-    // const moveZ = (k.w ? 1 : 0) - (k.s ? 1 : 0);
-    // const direction = new THREE.Vector3();
-    // direction.addScaledVector(forward, moveZ);
-    
-    // If I press W, moveZ is 1.
-    // forward vector points in camera direction.
-    // If I add scaled vector (forward * 1), I move forward.
-    // So W -> 1 is correct.
-    
-    // Joystick Up -> y is negative (e.g. -1).
-    // We want to move forward (1).
-    // So we need -y.
     const joyMoveZ = -mobileInput.move.y;
-    
-    // Joystick Right -> x is positive.
-    // D key -> moveX = 1.
-    // We want moveX = 1.
     const joyMoveX = mobileInput.move.x;
 
     const combinedMoveZ = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0) + joyMoveZ;
@@ -201,28 +216,42 @@ export function Player() {
     direction.addScaledVector(forward, combinedMoveZ);
     direction.addScaledVector(right, combinedMoveX);
     
+    // Speed * 1.5 if space (running) is held
+    const currentSpeed = k.space ? SPEED * 1.5 : SPEED;
+
     if (direction.lengthSq() > 0) {
       // Clamp length to 1 to prevent faster diagonal movement if both inputs active (though rare)
       if (direction.lengthSq() > 1) direction.normalize();
-      direction.multiplyScalar(SPEED);
+      direction.multiplyScalar(currentSpeed);
     }
 
-    body.current.setLinvel({ x: direction.x, y: velocity.y, z: direction.z }, true);
+    // Handle jump logic
+    let nextVelocityY = velocity.y;
+    if (shouldJump.current) {
+      shouldJump.current = false;
+      const isGrounded = Math.abs(velocity.y) < 0.1 && pos.y < 0.1;
+      const now = Date.now();
+      if (isGrounded && now - lastJumpTime.current > 500) {
+        nextVelocityY = 11;
+        lastJumpTime.current = now;
+      }
+    }
+
+    body.current.setLinvel({ x: direction.x, y: nextVelocityY, z: direction.z }, true);
+
+    // Smooth camera FOV zoom for aiming
+    const isAiming = useGameStore.getState().isAiming;
+    const targetFov = isAiming ? 35 : 75;
+    const perspectiveCamera = camera as THREE.PerspectiveCamera;
+    if (perspectiveCamera.isPerspectiveCamera && Math.abs(perspectiveCamera.fov - targetFov) > 0.01) {
+      perspectiveCamera.fov = THREE.MathUtils.lerp(perspectiveCamera.fov, targetFov, delta * 12);
+      perspectiveCamera.updateProjectionMatrix();
+    }
 
     // Mobile Look Rotation
     if (Math.abs(mobileInput.look.x) > 0.01 || Math.abs(mobileInput.look.y) > 0.01) {
       const lookSpeed = 2.0 * delta;
-      // Yaw (Left/Right) - Rotate around Y axis
-      // Joystick Right (x > 0) -> Turn Right (negative rotation around Y in standard right-handed? No, usually -Y is right? Let's test)
-      // PointerLockControls: moving mouse right -> camera rotates right.
-      // Euler Y decreases?
       camera.rotation.y -= mobileInput.look.x * lookSpeed;
-      
-      // Pitch (Up/Down) - Rotate around X axis
-      // Joystick Up (y < 0) -> Look Up.
-      // Looking up means increasing X rotation? Or decreasing?
-      // Usually looking up is positive X?
-      // Let's try standard mapping.
       camera.rotation.x -= mobileInput.look.y * lookSpeed;
       
       // Clamp pitch to avoid flipping
@@ -230,7 +259,6 @@ export function Player() {
     }
 
     // Update camera position to follow rigid body
-    const pos = body.current.translation();
     camera.position.set(pos.x, pos.y + 1.6, pos.z); // Eye level (raised from 0.8)
 
     // Sync gun to camera
@@ -253,15 +281,40 @@ export function Player() {
     }
   });
 
+  // Prevent context-menu popup when right-clicking to aim
   useEffect(() => {
-    const handleClick = () => {
-      if (document.pointerLockElement && gameState === 'playing' && playerState === 'active') {
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('contextmenu', handleContextMenu);
+    return () => window.removeEventListener('contextmenu', handleContextMenu);
+  }, []);
+
+  // Handle shooting (left click) and aiming (right click hold)
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!document.pointerLockElement || gameState !== 'playing' || playerState !== 'active') return;
+
+      if (e.button === 0) { // Left click
         shoot();
+      } else if (e.button === 2) { // Right click
+        setAiming(true);
       }
     };
-    window.addEventListener('mousedown', handleClick);
-    return () => window.removeEventListener('mousedown', handleClick);
-  }, [gameState, playerState, camera, world, rapier, hitEnemy, addParticles, addLaser]);
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) { // Right click
+        setAiming(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [gameState, playerState, setAiming, camera, world, rapier, hitEnemy, addParticles, addLaser]);
 
   // Synchronize physics rigid body position when game starts or respawns occur
   useEffect(() => {

@@ -17,10 +17,15 @@ function HUD() {
   const playerState = useGameStore(state => state.playerState);
   const otherPlayers = useGameStore(state => state.otherPlayers);
   const events = useGameStore(state => state.events);
+  const headshotAlerts = useGameStore(state => state.headshotAlerts || []);
+  const latestAlert = headshotAlerts[headshotAlerts.length - 1];
   const playerCount = Object.keys(otherPlayers).length + 1;
   const leaveGame = useGameStore(state => state.leaveGame);
   const isMobile = useIsMobile();
   const isPointerLocked = useGameStore(state => state.isPointerLocked);
+  const isAiming = useGameStore(state => state.isAiming);
+  const weaponHeat = useGameStore(state => state.weaponHeat);
+  const isOverheated = useGameStore(state => state.isOverheated);
 
   const leaderboard = useMemo(() => {
     const players = [
@@ -89,9 +94,33 @@ function HUD() {
       {/* Crosshair */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center">
         <div className="relative">
-          <div className={`w-4 h-4 border-2 rounded-full ${playerState === 'disabled' ? 'border-red-500' : 'border-cyan-400'}`} />
+          <div className={`border-2 rounded-full transition-all duration-150 ${isAiming ? 'w-2 h-2' : 'w-4 h-4'} ${playerState === 'disabled' ? 'border-red-500' : 'border-cyan-400'}`} />
           <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 rounded-full ${playerState === 'disabled' ? 'bg-red-500' : 'bg-cyan-400'}`} />
         </div>
+
+        {/* Neon Weapon Heat Bar */}
+        {gameState === 'playing' && playerState === 'active' && (
+          <div className="mt-4 flex flex-col items-center w-24 gap-1">
+            <div className="w-full h-1 bg-black/40 border border-cyan-500/20 rounded-full overflow-hidden relative shadow-[0_0_10px_rgba(0,0,0,0.5)]">
+              <div 
+                className={`h-full transition-all duration-100 ease-out shadow-[0_0_8px_currentColor] ${
+                  isOverheated 
+                    ? 'bg-red-500 text-red-500 animate-pulse' 
+                    : weaponHeat > 70 
+                      ? 'bg-amber-500 text-amber-500' 
+                      : 'bg-cyan-400 text-cyan-400'
+                }`}
+                style={{ width: `${weaponHeat}%` }}
+              />
+            </div>
+            {isOverheated && (
+              <span className="text-[9px] font-black text-red-500 tracking-widest uppercase animate-pulse drop-shadow-[0_0_3px_rgba(239,68,68,0.6)]">
+                OVERHEATED
+              </span>
+            )}
+          </div>
+        )}
+
         {!isMobile && !isPointerLocked && <div className="mt-4 text-cyan-400/50 text-xs tracking-widest font-bold">CLICK TO AIM</div>}
       </div>
 
@@ -156,6 +185,20 @@ function HUD() {
         </div>
       )}
 
+      {/* Headshot Alert Overlay */}
+      {latestAlert && (
+        <div key={latestAlert.id} className="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-none z-30 select-none animate-[headshot-enter_0.35s_cubic-bezier(0.34,1.56,0.64,1)_both] flex flex-col items-center gap-1.5">
+          <div className="bg-gradient-to-r from-transparent via-fuchsia-500/90 to-transparent text-white text-lg md:text-2xl font-black tracking-[0.25em] px-12 md:px-20 py-2 border-y border-fuchsia-500 shadow-[0_0_30px_rgba(217,70,239,0.6)] flex items-center gap-3">
+            <span className="text-yellow-400 drop-shadow-[0_0_4px_rgba(250,204,21,0.6)]">🎯</span>
+            HEADSHOT
+            <span className="text-yellow-400 drop-shadow-[0_0_4px_rgba(250,204,21,0.6)] font-mono text-xl md:text-2xl">+200</span>
+          </div>
+          <div className="text-fuchsia-400 font-bold tracking-widest text-[9px] md:text-xs uppercase drop-shadow-[0_0_3px_rgba(217,70,239,0.5)]">
+            CRITICAL NEURAL TAG LINKED
+          </div>
+        </div>
+      )}
+
       {/* Mobile Controls */}
       {isMobile && gameState === 'playing' && <MobileControls />}
 
@@ -203,6 +246,12 @@ export default function App() {
         @keyframes pulse-glow {
           0%, 100% { transform: scale(1); filter: brightness(1); }
           50% { transform: scale(1.02); filter: brightness(1.15); }
+        }
+        @keyframes headshot-enter {
+          0% { transform: translate(-50%, -20px) scale(0.8); opacity: 0; filter: brightness(2) contrast(1.5); }
+          15% { transform: translate(-50%, 0) scale(1.1); opacity: 1; filter: brightness(1.5); }
+          30% { transform: translate(-50%, 0) scale(1); filter: brightness(1); }
+          100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
         }
       `}</style>
 
@@ -261,7 +310,7 @@ export default function App() {
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
-                  8 Active Drone Targets
+                  40 Active Drone Targets
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
