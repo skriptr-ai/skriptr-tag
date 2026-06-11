@@ -446,8 +446,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (mode === 'single') {
        const spawns = SPAWN_LOCATIONS;
        const initialEnemies = generateInitialEnemies(spawns);
-       const playerSpawnIndex = Math.floor(spawns.length / 2);
-       const playerSpawn = spawns[playerSpawnIndex];
+       // Use our safe spawn algorithm to find a secure, secluded sector furthest from any initial bots
+       const playerSpawn = findSafeSpawn(spawns, initialEnemies);
       
       set({
         gameState: 'playing',
