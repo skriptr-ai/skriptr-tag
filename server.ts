@@ -68,20 +68,35 @@ async function startServer() {
       socket.broadcast.emit('playerShot', { id: socket.id, ...data });
     });
 
-    socket.on('hitPlayer', (targetId: string) => {
+    socket.on('hitPlayer', (data: string | { targetId: string, isHeadshot?: boolean }) => {
+      let targetId: string;
+      let isHeadshot = false;
+
+      if (typeof data === 'string') {
+        targetId = data;
+      } else if (data && typeof data === 'object') {
+        targetId = data.targetId;
+        isHeadshot = !!data.isHeadshot;
+      } else {
+        return;
+      }
+
       if (players[targetId] && players[socket.id]) {
         const now = Date.now();
         // Allow hit if active OR if disabled period has expired
         if (players[targetId].state === 'active' || now > players[targetId].disabledUntil) {
           players[targetId].state = 'disabled';
           players[targetId].disabledUntil = now + 3000;
-          players[socket.id].score += 100;
+          
+          const points = isHeadshot ? 200 : 100;
+          players[socket.id].score += points;
           
           io.emit('playerHit', {
             targetId,
             shooterId: socket.id,
             targetDisabledUntil: players[targetId].disabledUntil,
-            shooterScore: players[socket.id].score
+            shooterScore: players[socket.id].score,
+            isHeadshot
           });
         }
       }

@@ -8,7 +8,7 @@ import { useFrame } from '@react-three/fiber';
 import { RigidBody, RapierRigidBody, CapsuleCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useGameStore } from '../store';
-import { Text } from '@react-three/drei';
+import { Text, Billboard } from '@react-three/drei';
 
 export function OtherPlayer({ id }: { id: string }) {
   const data = useGameStore(state => state.otherPlayers[id]);
@@ -72,17 +72,18 @@ export function OtherPlayer({ id }: { id: string }) {
         </mesh>
 
         {/* Username Label */}
-        <Text
-          position={[0, 2.5, 0]}
-          fontSize={0.3}
-          color={data.state === 'active' ? data.color : '#666666'}
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.02}
-          outlineColor="#000000"
-        >
-          {data.name}
-        </Text>
+        <Billboard position={[0, 2.5, 0]}>
+          <Text
+            fontSize={0.3}
+            color={data.state === 'active' ? data.color : '#666666'}
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.02}
+            outlineColor="#000000"
+          >
+            {data.name}
+          </Text>
+        </Billboard>
       </group>
     </RigidBody>
   );

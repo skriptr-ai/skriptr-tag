@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { io, Socket } from 'socket.io-client';
+import { BOT_NAMES } from './botNames';
 
 export type GameState = 'menu' | 'playing' | 'gameover';
 export type EntityState = 'active' | 'disabled';
@@ -15,6 +16,9 @@ export interface EnemyData {
   position: [number, number, number];
   state: EntityState;
   disabledUntil: number;
+  type?: 'seeker' | 'hunter';
+  name?: string;
+  score?: number;
 }
 
 export interface PlayerData {
@@ -60,10 +64,20 @@ interface GameStore {
   lasers: LaserData[];
   particles: ParticleData[];
   events: GameEvent[];
+  headshotAlerts: { id: string; timestamp: number }[];
   playerPosition: [number, number, number];
   playerRotation: number;
+  playerPositionEpoch: number;
   isPointerLocked: boolean;
   setPointerLocked: (locked: boolean) => void;
+  
+  // Aiming & Weapon Heat States
+  isAiming: boolean;
+  setAiming: (aiming: boolean) => void;
+  weaponHeat: number;
+  isOverheated: boolean;
+  lastHeatDecayTime: number;
+  addShotHeat: () => boolean;
   
   // Multiplayer
   socket: Socket | null;
@@ -73,14 +87,15 @@ interface GameStore {
   endGame: () => void;
   leaveGame: () => void;
   updateTime: (delta: number) => void;
-  hitPlayer: () => void;
-  hitEnemy: (id: string, byPlayer?: boolean) => void;
+  hitPlayer: (botId?: string) => void;
+  hitEnemy: (id: string, byPlayer?: boolean, isHeadshot?: boolean, shooterId?: string) => void;
   addLaser: (start: [number, number, number], end: [number, number, number], color: string) => void;
   addParticles: (position: [number, number, number], color: string) => void;
   addEvent: (message: string) => void;
   updateEnemies: (time: number) => void;
   cleanupEffects: (time: number) => void;
   setPlayerState: (state: EntityState) => void;
+  forceRespawn: () => void;
   
   // Multiplayer actions
   updatePlayerPosition: (position: [number, number, number], rotation: number) => void;
@@ -162,18 +177,103 @@ function generatePredefinedSpawns(): [number, number, number][] {
     const depth = isHorizontal ? rngLocal() * 3 + 1 : rngLocal() * 25 + 10;
 
     return { position: [x, height / 2 - 0.5, z], size: [width, height, depth] };
-  }).filter(Boolean);
+  }).filter(Boolean) as { position: [number, number, number]; size: [number, number, number] }[];
 
-  const coords = [-80, -40, 0, 40, 80];
+  // 10x10 grid coordinates to produce exactly 100 unique spawns
+  const coordsX = [-75, -58, -42, -25, -8, 8, 25, 42, 58, 75];
+  const coordsZ = [-75, -58, -42, -25, -8, 8, 25, 42, 58, 75];
   const spawns: [number, number, number][] = [];
 
-  for (const cx of coords) {
-    for (const cz of coords) {
+  for (const cx of coordsX) {
+    for (const cz of coordsZ) {
       spawns.push(findClearPosition(cx, cz, obstacles));
     }
   }
 
-  return spawns;
+  // --- Breadth-First Search (BFS) Connectivity Filter ---
+  // Construct a discrete 2D grid to flood fill and identify fully-connected walkable areas.
+  const GRID_MIN = -100;
+  const GRID_MAX = 100;
+  const RESOLUTION = 1.0; // 1-meter cell size
+  const SIZE = Math.round((GRID_MAX - GRID_MIN) / RESOLUTION) + 1;
+
+  function toGrid(val: number) {
+    return Math.round((val - GRID_MIN) / RESOLUTION);
+  }
+
+  // Uint8Array for performance. 1 = walkable, 0 = blocked
+  const walkableGrid = new Uint8Array(SIZE * SIZE).fill(1);
+
+  // Mark all obstacle-occupied areas as blocked, expanding by player collision radius (0.6m for safety padding)
+  const PLAYER_PADDING = 0.6;
+  for (const obs of obstacles) {
+    const [ox, , oz] = obs.position;
+    const [ow, , od] = obs.size;
+
+    const minX = ox - ow / 2 - PLAYER_PADDING;
+    const maxX = ox + ow / 2 + PLAYER_PADDING;
+    const minZ = oz - od / 2 - PLAYER_PADDING;
+    const maxZ = oz + od / 2 + PLAYER_PADDING;
+
+    const startX = Math.max(0, toGrid(minX));
+    const endX = Math.min(SIZE - 1, toGrid(maxX));
+    const startZ = Math.max(0, toGrid(minZ));
+    const endZ = Math.min(SIZE - 1, toGrid(maxZ));
+
+    for (let x = startX; x <= endX; x++) {
+      for (let z = startZ; z <= endZ; z++) {
+        walkableGrid[x * SIZE + z] = 0; // Blocked
+      }
+    }
+  }
+
+  // Flood-fill / BFS starting from the absolute map center [0, 0] (always open)
+  const visited = new Uint8Array(SIZE * SIZE);
+  const queue: [number, number][] = [];
+
+  const startX = toGrid(0);
+  const startZ = toGrid(0);
+
+  if (walkableGrid[startX * SIZE + startZ] === 1) {
+    queue.push([startX, startZ]);
+    visited[startX * SIZE + startZ] = 1;
+  }
+
+  while (queue.length > 0) {
+    const [cx, cz] = queue.shift()!;
+
+    const neighbors = [
+      [cx + 1, cz],
+      [cx - 1, cz],
+      [cx, cz + 1],
+      [cx, cz - 1]
+    ];
+
+    for (const [nx, nz] of neighbors) {
+      if (nx >= 0 && nx < SIZE && nz >= 0 && nz < SIZE) {
+        const idx = nx * SIZE + nz;
+        if (walkableGrid[idx] === 1 && visited[idx] === 0) {
+          visited[idx] = 1;
+          queue.push([nx, nz]);
+        }
+      }
+    }
+  }
+
+  // Filter out any spawn points that are unreachable/isolated from the map center
+  const connectedSpawns = spawns.filter(spawn => {
+    const gx = toGrid(spawn[0]);
+    const gz = toGrid(spawn[2]);
+    if (gx < 0 || gx >= SIZE || gz < 0 || gz >= SIZE) return false;
+    return visited[gx * SIZE + gz] === 1;
+  });
+
+  // If for some reason a complete map failure blocks center (should be impossible), fall back to original spawns
+  if (connectedSpawns.length === 0) {
+    return spawns;
+  }
+
+  return connectedSpawns;
 }
 
 const SPAWN_LOCATIONS = generatePredefinedSpawns();
@@ -181,16 +281,130 @@ const SPAWN_LOCATIONS = generatePredefinedSpawns();
 function generateInitialEnemies(spawns: [number, number, number][]): EnemyData[] {
   const enemies: EnemyData[] = [];
   let botIndex = 1;
+  const playerSpawnIndex = Math.floor(spawns.length / 2);
+  
   for (let i = 0; i < spawns.length; i++) {
-    if (i === 12) continue; // Skip index 12 (center map area [0, 1, 0]) for player spawn
+    if (i === playerSpawnIndex) continue; // Skip the center map area spawn for the player
+    if (enemies.length >= 40) break; // Limit to exactly 40 bots
+    
+    // 20% are elite hunters (every 5th bot)
+    const type = (botIndex % 5 === 0) ? 'hunter' : 'seeker';
+    
+    // Assign curated famous tech entrepreneur name
+    const name = BOT_NAMES[botIndex - 1] || `Bot ${botIndex}`;
+
     enemies.push({
       id: `bot-${botIndex++}`,
       position: spawns[i],
       state: 'active',
-      disabledUntil: 0
+      disabledUntil: 0,
+      type,
+      name,
+      score: 0
     });
   }
   return enemies;
+}
+
+function findSafeSpawn(spawns: [number, number, number][], enemies: EnemyData[]): [number, number, number] {
+  const activeEnemies = enemies.filter(e => e.state === 'active');
+  if (activeEnemies.length === 0) {
+    return spawns[Math.floor(Math.random() * spawns.length)];
+  }
+
+  // Calculate the minimum distance to any active enemy for each spawn
+  const scoredSpawns = spawns.map(spawn => {
+    let minDistance = Infinity;
+    for (const enemy of activeEnemies) {
+      const dx = spawn[0] - enemy.position[0];
+      const dz = spawn[2] - enemy.position[2];
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < minDistance) {
+        minDistance = dist;
+      }
+    }
+    return { spawn, minDistance };
+  });
+
+  // Sort by minDistance descending (safest spawns first)
+  scoredSpawns.sort((a, b) => b.minDistance - a.minDistance);
+
+  // Pick a random spawn from the top 15 safest spawns to ensure variety
+  const poolSize = Math.min(15, scoredSpawns.length);
+  const randomIndex = Math.floor(Math.random() * poolSize);
+  return scoredSpawns[randomIndex].spawn;
+}
+
+function findSafeSpawnMultiplayer(spawns: [number, number, number][], otherPlayers: Record<string, PlayerData>): [number, number, number] {
+  const activePlayers = Object.values(otherPlayers).filter(p => p.state === 'active');
+  if (activePlayers.length === 0) {
+    return spawns[Math.floor(Math.random() * spawns.length)];
+  }
+
+  // Calculate the minimum distance to any active player for each spawn
+  const scoredSpawns = spawns.map(spawn => {
+    let minDistance = Infinity;
+    for (const player of activePlayers) {
+      if (!player.position) continue;
+      const dx = spawn[0] - player.position[0];
+      const dz = spawn[2] - player.position[2];
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < minDistance) {
+        minDistance = dist;
+      }
+    }
+    return { spawn, minDistance };
+  });
+
+  // Sort by minDistance descending (safest spawns first)
+  scoredSpawns.sort((a, b) => b.minDistance - a.minDistance);
+
+  // Pick a random spawn from the top 15 safest spawns to ensure variety
+  const poolSize = Math.min(15, scoredSpawns.length);
+  const randomIndex = Math.floor(Math.random() * poolSize);
+  return scoredSpawns[randomIndex].spawn;
+}
+
+function findSafeSpawnForBot(
+  spawns: [number, number, number][],
+  playerPosition: [number, number, number],
+  playerActive: boolean,
+  enemies: EnemyData[],
+  selfId: string
+): [number, number, number] {
+  const activeEnemies = enemies.filter(e => e.state === 'active' && e.id !== selfId);
+  
+  const scoredSpawns = spawns.map(spawn => {
+    let playerDist = Infinity;
+    if (playerActive) {
+      const dx = spawn[0] - playerPosition[0];
+      const dz = spawn[2] - playerPosition[2];
+      playerDist = Math.sqrt(dx * dx + dz * dz);
+    }
+
+    let minBotDist = Infinity;
+    for (const enemy of activeEnemies) {
+      const dx = spawn[0] - enemy.position[0];
+      const dz = spawn[2] - enemy.position[2];
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < minBotDist) {
+        minBotDist = dist;
+      }
+    }
+
+    // High score means far from both player and other bots
+    let score = Math.min(playerDist, 40) + Math.min(minBotDist, 15);
+    if (playerDist < 15) score -= 1000; // Heavily penalize spawning too close to the player
+    if (minBotDist < 4) score -= 500;   // Heavily penalize spawning on top of another bot
+
+    return { spawn, score };
+  });
+
+  scoredSpawns.sort((a, b) => b.score - a.score);
+
+  const poolSize = Math.min(15, scoredSpawns.length);
+  const randomIndex = Math.floor(Math.random() * poolSize);
+  return scoredSpawns[randomIndex].spawn;
 }
 
 const INITIAL_ENEMIES: EnemyData[] = [
@@ -215,9 +429,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lasers: [],
   particles: [],
   events: [],
+  headshotAlerts: [],
   playerPosition: [0, 2, 0],
   playerRotation: 0,
+  playerPositionEpoch: 0,
   isPointerLocked: false,
+
+  // Aiming & Weapon Heat States
+  isAiming: false,
+  setAiming: (isAiming) => set({ isAiming }),
+  weaponHeat: 0,
+  isOverheated: false,
+  lastHeatDecayTime: Date.now(),
+  addShotHeat: () => {
+    const state = get();
+    if (state.isOverheated || state.playerState === 'disabled' || state.gameState !== 'playing') {
+      return false;
+    }
+    const nextHeat = Math.min(100, state.weaponHeat + 20); // 5 rapid shots to overheat
+    const nextOverheated = nextHeat >= 100;
+    set({
+      weaponHeat: nextHeat,
+      isOverheated: nextOverheated,
+      lastHeatDecayTime: Date.now()
+    });
+    return true;
+  },
   
   socket: null,
   otherPlayers: {},
@@ -240,9 +477,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     if (mode === 'single') {
-      const spawns = SPAWN_LOCATIONS;
-      const initialEnemies = generateInitialEnemies(spawns);
-      const playerSpawn = spawns[12];
+       const spawns = SPAWN_LOCATIONS;
+       const initialEnemies = generateInitialEnemies(spawns);
+       // Use our safe spawn algorithm to find a secure, secluded sector furthest from any initial bots
+       const playerSpawn = findSafeSpawn(spawns, initialEnemies);
       
       set({
         gameState: 'playing',
@@ -255,10 +493,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         lasers: [],
         particles: [],
         events: [{ id: Math.random().toString(), message: "Solo Link Established. Have fun!", timestamp: Date.now() }],
+        headshotAlerts: [],
         socket: null,
         otherPlayers: {},
         isPointerLocked: false,
         playerPosition: [playerSpawn[0], 2, playerSpawn[2]],
+        playerPositionEpoch: Date.now(),
       });
       return;
     }
@@ -280,14 +520,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     newSocket.on('gameJoined', (players: Record<string, PlayerData>) => {
       const otherPlayers = { ...players };
       delete otherPlayers[newSocket!.id!];
+      
+      const spawns = SPAWN_LOCATIONS;
+      const safeSpawn = findSafeSpawnMultiplayer(spawns, otherPlayers);
+      const playerSpawn: [number, number, number] = [safeSpawn[0], 2, safeSpawn[2]];
+
       set({ 
         otherPlayers,
         gameState: 'playing',
         gameMode: 'online',
         timeLeft: 120,
         score: 0,
-        enemies: INITIAL_ENEMIES.map(e => ({ ...e, state: 'active', disabledUntil: 0 }))
+        enemies: [],
+        headshotAlerts: [],
+        playerPosition: playerSpawn,
+        playerPositionEpoch: Date.now()
       });
+
+      newSocket!.emit('updatePosition', { position: playerSpawn, rotation: 0 });
     });
 
     newSocket.on('playerJoined', (player: PlayerData) => {
@@ -320,7 +570,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }));
     });
 
-    newSocket.on('playerHit', (data: { targetId: string, shooterId: string, targetDisabledUntil: number, shooterScore: number }) => {
+    newSocket.on('playerHit', (data: { targetId: string, shooterId: string, targetDisabledUntil: number, shooterScore: number, isHeadshot?: boolean }) => {
       set(state => {
         const now = Date.now();
         const isLocalShooter = data.shooterId === newSocket!.id;
@@ -328,7 +578,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         
         const shooterName = isLocalShooter ? 'You' : (state.otherPlayers[data.shooterId]?.name || 'Unknown');
         const targetName = isLocalTarget ? 'You' : (state.otherPlayers[data.targetId]?.name || 'Unknown');
-        const eventMsg = `${shooterName} tagged ${targetName}`;
+        
+        const isHeadshot = !!data.isHeadshot;
+        const eventMsg = isHeadshot 
+          ? `HEADSHOT! ${shooterName} tagged ${targetName}` 
+          : `${shooterName} tagged ${targetName}`;
         const newEvent = { id: Math.random().toString(), message: eventMsg, timestamp: now };
 
         let newState: Partial<GameStore> = {
@@ -343,6 +597,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (isLocalShooter) {
           newState.score = data.shooterScore;
         }
+
+        const newAlerts = isLocalShooter && isHeadshot 
+          ? [...(state.headshotAlerts || []), { id: Math.random().toString(), timestamp: now }] 
+          : (state.headshotAlerts || []);
+        newState.headshotAlerts = newAlerts;
 
         // Update other players' states
         const players = { ...state.otherPlayers };
@@ -392,13 +651,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       timeLeft: 120,
       playerState: 'active',
       playerDisabledUntil: 0,
-      enemies: INITIAL_ENEMIES.map(e => ({ ...e, state: 'active', disabledUntil: 0 })),
+      enemies: [],
       lasers: [],
       particles: [],
       events: [],
       socket: newSocket,
       otherPlayers: {},
       isPointerLocked: false,
+      headshotAlerts: [],
     });
   },
 
@@ -424,6 +684,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lasers: [],
       particles: [],
       events: [],
+      headshotAlerts: [],
       score: 0,
       timeLeft: 120,
       playerState: 'active',
@@ -441,34 +702,76 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return { timeLeft: newTime };
   }),
 
-  hitPlayer: () => set((state) => {
+  hitPlayer: (botId) => set((state) => {
     if (state.playerState === 'disabled' || state.gameState !== 'playing') return state;
+    
+    let updatedEnemies = state.enemies;
+    let newEvents = state.events;
+    
+    if (botId) {
+      const bot = state.enemies.find(e => e.id === botId);
+      const botName = bot?.name || botId;
+      newEvents = [...state.events, { id: Math.random().toString(), message: `${botName} tagged you!`, timestamp: Date.now() }];
+      
+      updatedEnemies = state.enemies.map(e => {
+        if (e.id === botId) {
+          return { ...e, score: (e.score || 0) + 100 };
+        }
+        return e;
+      });
+    }
+
     return {
       playerState: 'disabled',
       playerDisabledUntil: Date.now() + 3000,
-      score: Math.max(0, state.score - 50), // Penalty for getting hit
+      score: Math.max(0, state.score - 200), // Penalty for getting hit raised to -200
+      enemies: updatedEnemies,
+      events: newEvents
     };
   }),
 
-  hitEnemy: (id, byPlayer = false) => set((state) => {
+  hitEnemy: (id, byPlayer = false, isHeadshot = false, shooterId) => set((state) => {
     if (state.gameState !== 'playing') return state;
     
     // Check if it's a multiplayer player
     if (state.socket && state.otherPlayers[id]) {
-      state.socket.emit('hitPlayer', id);
+      state.socket.emit('hitPlayer', { targetId: id, isHeadshot });
       return state;
     }
+
+    const victim = state.enemies.find(e => e.id === id);
+    const victimName = victim?.name || id;
 
     const enemies = state.enemies.map(e => {
       if (e.id === id && e.state === 'active') {
         return { ...e, state: 'disabled' as EntityState, disabledUntil: Date.now() + 3000 };
       }
+      if (shooterId && e.id === shooterId) {
+        return { ...e, score: (e.score || 0) + 100 };
+      }
       return e;
     });
+
+    const points = isHeadshot ? 200 : 100;
+    let message = '';
+    if (byPlayer) {
+      message = isHeadshot ? `HEADSHOT! You tagged ${victimName}` : `You tagged ${victimName}`;
+    } else if (shooterId) {
+      const shooter = state.enemies.find(e => e.id === shooterId);
+      const shooterName = shooter?.name || shooterId;
+      message = `${shooterName} tagged ${victimName}`;
+    } else {
+      message = `${victimName} was disabled`;
+    }
+
+    const newEvents = [...state.events, { id: Math.random().toString(), message, timestamp: Date.now() }];
+    const newAlerts = byPlayer && isHeadshot ? [...(state.headshotAlerts || []), { id: Math.random().toString(), timestamp: Date.now() }] : (state.headshotAlerts || []);
+
     return {
       enemies,
-      score: byPlayer ? state.score + 100 : state.score, // Points for hitting enemy
-      events: byPlayer ? [...state.events, { id: Math.random().toString(), message: `You tagged ${id}`, timestamp: Date.now() }] : state.events
+      score: byPlayer ? state.score + points : state.score,
+      events: newEvents,
+      headshotAlerts: newAlerts
     };
   }),
 
@@ -495,11 +798,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const enemies = state.enemies.map(e => {
       if (e.state === 'disabled' && time > e.disabledUntil) {
         changed = true;
-        const randomSpawn = SPAWN_LOCATIONS[Math.floor(Math.random() * SPAWN_LOCATIONS.length)];
+        const safeSpawn = findSafeSpawnForBot(
+          SPAWN_LOCATIONS,
+          state.playerPosition,
+          state.playerState === 'active',
+          state.enemies,
+          e.id
+        );
         return { 
           ...e, 
           state: 'active' as EntityState,
-          position: randomSpawn
+          position: safeSpawn
         };
       }
       return e;
@@ -519,19 +828,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
 
     if (state.playerState === 'disabled' && time > state.playerDisabledUntil) {
-      const randomSpawn = SPAWN_LOCATIONS[Math.floor(Math.random() * SPAWN_LOCATIONS.length)];
-      const nextPlayerPosition: [number, number, number] = [randomSpawn[0], 2, randomSpawn[2]];
+      const isOnline = state.gameMode === 'online';
+      const safeSpawn = isOnline 
+        ? findSafeSpawnMultiplayer(SPAWN_LOCATIONS, state.otherPlayers)
+        : findSafeSpawn(SPAWN_LOCATIONS, state.enemies);
+      const nextPlayerPosition: [number, number, number] = [safeSpawn[0], 2, safeSpawn[2]];
       
       const newEvent = { 
         id: Math.random().toString(), 
         message: "You respawned at a new sector", 
         timestamp: Date.now() 
       };
+
+      if (isOnline && state.socket) {
+        state.socket.emit('updatePosition', { position: nextPlayerPosition, rotation: 0 });
+      }
       
       return { 
         enemies, 
         playerState: 'active', 
         playerPosition: nextPlayerPosition,
+        playerPositionEpoch: Date.now(),
         events: [...state.events, newEvent],
         otherPlayers: playersChanged ? otherPlayers : state.otherPlayers 
       };
@@ -543,15 +860,66 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const lasers = state.lasers.filter(l => time - l.timestamp < 200); // Lasers last 200ms
     const particles = state.particles.filter(p => time - p.timestamp < 500); // Particles last 500ms
     const events = state.events.filter(e => time - e.timestamp < 5000); // Events last 5s
-    if (lasers.length !== state.lasers.length || particles.length !== state.particles.length || events.length !== state.events.length) {
-      return { lasers, particles, events };
+    const headshotAlerts = (state.headshotAlerts || []).filter(a => time - a.timestamp < 1500); // Alerts last 1.5s
+    
+    // Weapon heat decay
+    const lastDecay = state.lastHeatDecayTime || time;
+    const elapsedMs = time - lastDecay;
+    const decayRate = state.isOverheated ? 30 : 45; // Cool down slightly slower if overheated (3s) vs normal (2.2s)
+    const heatReduction = (decayRate * elapsedMs) / 1000;
+    let newHeat = Math.max(0, state.weaponHeat - heatReduction);
+    let newOverheated = state.isOverheated;
+    if (newOverheated && newHeat === 0) {
+      newOverheated = false;
     }
-    return state;
+
+    const alertsChanged = (state.headshotAlerts || []).length !== headshotAlerts.length;
+
+    return {
+      lasers,
+      particles,
+      events,
+      headshotAlerts,
+      weaponHeat: newHeat,
+      isOverheated: newOverheated,
+      lastHeatDecayTime: time
+    };
   }),
 
   setPlayerState: (playerState) => set({ playerState }),
   
-  setPointerLocked: (isPointerLocked) => set({ isPointerLocked }),
+  forceRespawn: () => {
+    const spawns = SPAWN_LOCATIONS;
+    const isOnline = get().gameMode === 'online';
+    const safeSpawn = isOnline 
+      ? findSafeSpawnMultiplayer(spawns, get().otherPlayers)
+      : findSafeSpawn(spawns, get().enemies);
+    const nextPlayerPosition: [number, number, number] = [safeSpawn[0], 2, safeSpawn[2]];
+    
+    const newEvent = { 
+      id: Math.random().toString(), 
+      message: "Emergency warp initiated. Relocated safely.", 
+      timestamp: Date.now() 
+    };
+
+    const socket = get().socket;
+    if (isOnline && socket) {
+      socket.emit('updatePosition', { position: nextPlayerPosition, rotation: 0 });
+    }
+    
+    set({
+      playerPosition: nextPlayerPosition,
+      playerState: 'active',
+      playerDisabledUntil: 0,
+      playerPositionEpoch: Date.now(),
+      events: [...get().events, newEvent]
+    });
+  },
+  
+  setPointerLocked: (isPointerLocked) => set((state) => ({
+    isPointerLocked,
+    isAiming: isPointerLocked ? state.isAiming : false
+  })),
 
   updatePlayerPosition: (position, rotation) => {
     const { socket } = get();

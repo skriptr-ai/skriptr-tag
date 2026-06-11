@@ -17,22 +17,45 @@ function HUD() {
   const playerState = useGameStore(state => state.playerState);
   const otherPlayers = useGameStore(state => state.otherPlayers);
   const events = useGameStore(state => state.events);
+  const headshotAlerts = useGameStore(state => state.headshotAlerts || []);
+  const latestAlert = headshotAlerts[headshotAlerts.length - 1];
   const playerCount = Object.keys(otherPlayers).length + 1;
   const leaveGame = useGameStore(state => state.leaveGame);
   const isMobile = useIsMobile();
   const isPointerLocked = useGameStore(state => state.isPointerLocked);
+  const isAiming = useGameStore(state => state.isAiming);
+  const weaponHeat = useGameStore(state => state.weaponHeat);
+  const isOverheated = useGameStore(state => state.isOverheated);
+  const enemies = useGameStore(state => state.enemies);
+  const forceRespawn = useGameStore(state => state.forceRespawn);
 
-  const leaderboard = useMemo(() => {
-    const players = [
-      { id: 'You', score: score, isMe: true },
-      ...Object.values(otherPlayers).map(p => ({
-        id: p.name,
+  const fullLeaderboard = useMemo(() => {
+    const list = [
+      { name: 'You', score: score, isMe: true }
+    ];
+
+    if (gameMode === 'single') {
+      list.push(...enemies.map(e => ({
+        name: e.name || e.id,
+        score: e.score || 0,
+        isMe: false
+      })));
+    } else {
+      list.push(...Object.values(otherPlayers).map(p => ({
+        name: p.name,
         score: p.score,
         isMe: false
-      }))
-    ];
-    return players.sort((a, b) => b.score - a.score);
-  }, [score, otherPlayers]);
+      })));
+    }
+
+    return list.sort((a, b) => b.score - a.score);
+  }, [score, enemies, otherPlayers, gameMode]);
+
+  const topFive = useMemo(() => fullLeaderboard.slice(0, 5), [fullLeaderboard]);
+  
+  const myRank = useMemo(() => {
+    return fullLeaderboard.findIndex(p => p.isMe);
+  }, [fullLeaderboard]);
 
   return (
     <>
@@ -89,9 +112,33 @@ function HUD() {
       {/* Crosshair */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center">
         <div className="relative">
-          <div className={`w-4 h-4 border-2 rounded-full ${playerState === 'disabled' ? 'border-red-500' : 'border-cyan-400'}`} />
+          <div className={`border-2 rounded-full transition-all duration-150 ${isAiming ? 'w-2 h-2' : 'w-4 h-4'} ${playerState === 'disabled' ? 'border-red-500' : 'border-cyan-400'}`} />
           <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 rounded-full ${playerState === 'disabled' ? 'bg-red-500' : 'bg-cyan-400'}`} />
         </div>
+
+        {/* Neon Weapon Heat Bar */}
+        {gameState === 'playing' && playerState === 'active' && (
+          <div className="mt-4 flex flex-col items-center w-24 gap-1">
+            <div className="w-full h-1 bg-black/40 border border-cyan-500/20 rounded-full overflow-hidden relative shadow-[0_0_10px_rgba(0,0,0,0.5)]">
+              <div 
+                className={`h-full transition-all duration-100 ease-out shadow-[0_0_8px_currentColor] ${
+                  isOverheated 
+                    ? 'bg-red-500 text-red-500 animate-pulse' 
+                    : weaponHeat > 70 
+                      ? 'bg-amber-500 text-amber-500' 
+                      : 'bg-cyan-400 text-cyan-400'
+                }`}
+                style={{ width: `${weaponHeat}%` }}
+              />
+            </div>
+            {isOverheated && (
+              <span className="text-[9px] font-black text-red-500 tracking-widest uppercase animate-pulse drop-shadow-[0_0_3px_rgba(239,68,68,0.6)]">
+                OVERHEATED
+              </span>
+            )}
+          </div>
+        )}
+
         {!isMobile && !isPointerLocked && <div className="mt-4 text-cyan-400/50 text-xs tracking-widest font-bold">CLICK TO AIM</div>}
       </div>
 
@@ -103,14 +150,34 @@ function HUD() {
         
         {/* Leaderboard - Hide on mobile if screen is small, or make smaller */}
         {!isMobile && (
-          <div className="bg-black/50 border border-cyan-900/50 p-3 rounded w-48 flex flex-col gap-1">
-            <div className="text-cyan-400/70 text-xs font-bold mb-1 border-b border-cyan-900/50 pb-1">LEADERBOARD</div>
-            {leaderboard.map((p, i) => (
-              <div key={p.id} className={`flex justify-between text-sm ${p.isMe ? 'text-cyan-400 font-bold' : 'text-cyan-400/70'}`}>
-                <span>{i + 1}. {p.id}</span>
+          <div className="bg-black/50 border border-cyan-900/50 p-3 rounded w-56 flex flex-col gap-1">
+            <div className="text-cyan-400/70 text-xs font-bold mb-1 border-b border-cyan-900/50 pb-1 uppercase tracking-widest">
+              LEADERBOARD
+            </div>
+            {topFive.map((p, i) => (
+              <div 
+                key={`${p.name}-${i}`} 
+                className={`flex justify-between text-sm ${
+                  p.isMe 
+                    ? 'text-cyan-400 font-bold drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]' 
+                    : 'text-cyan-400/70'
+                }`}
+              >
+                <span className="truncate max-w-[150px]">
+                  {i + 1}. {p.name}
+                </span>
                 <span>{p.score}</span>
               </div>
             ))}
+            {myRank >= 5 && (
+              <>
+                <div className="border-t border-cyan-900/30 my-1 pt-1" />
+                <div className="flex justify-between text-sm text-cyan-400 font-bold drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]">
+                  <span className="truncate max-w-[150px]">{myRank + 1}. You</span>
+                  <span>{score}</span>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -122,12 +189,22 @@ function HUD() {
             TIME: {Math.floor(timeLeft / 60)}:{(Math.floor(timeLeft) % 60).toString().padStart(2, '0')}
           </div>
         )}
-        <button
-          onClick={leaveGame}
-          className="px-2 py-1 md:px-4 md:py-2 bg-red-500/20 border border-red-500 text-red-500 text-xs md:text-sm font-bold rounded hover:bg-red-500 hover:text-black transition-all duration-200"
-        >
-          LEAVE
-        </button>
+        <div className="flex gap-2">
+          {gameState === 'playing' && (
+            <button
+              onClick={forceRespawn}
+              className="px-2 py-1 md:px-4 md:py-2 bg-fuchsia-500/20 border border-fuchsia-400 text-fuchsia-400 text-xs md:text-sm font-bold rounded hover:bg-fuchsia-400 hover:text-black hover:shadow-[0_0_15px_rgba(217,70,239,0.4)] transition-all duration-200 uppercase tracking-widest"
+            >
+              RESPAWN
+            </button>
+          )}
+          <button
+            onClick={leaveGame}
+            className="px-2 py-1 md:px-4 md:py-2 bg-red-500/20 border border-red-500 text-red-500 text-xs md:text-sm font-bold rounded hover:bg-red-500 hover:text-black transition-all duration-200"
+          >
+            LEAVE
+          </button>
+        </div>
         {!isMobile && <div className="text-cyan-400/50 text-xs mt-1 pointer-events-none uppercase tracking-widest font-bold">ESC to unlock cursor</div>}
 
         {/* Event Log */}
@@ -152,6 +229,20 @@ function HUD() {
         <div className="absolute inset-0 bg-red-500/20 pointer-events-none flex items-center justify-center">
           <div className="text-red-500 text-4xl md:text-6xl font-black tracking-widest drop-shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse text-center">
             SYSTEM DISABLED
+          </div>
+        </div>
+      )}
+
+      {/* Headshot Alert Overlay */}
+      {latestAlert && (
+        <div key={latestAlert.id} className="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-none z-30 select-none animate-[headshot-enter_0.35s_cubic-bezier(0.34,1.56,0.64,1)_both] flex flex-col items-center gap-1.5">
+          <div className="bg-gradient-to-r from-transparent via-fuchsia-500/90 to-transparent text-white text-lg md:text-2xl font-black tracking-[0.25em] px-12 md:px-20 py-2 border-y border-fuchsia-500 shadow-[0_0_30px_rgba(217,70,239,0.6)] flex items-center gap-3">
+            <span className="text-yellow-400 drop-shadow-[0_0_4px_rgba(250,204,21,0.6)]">🎯</span>
+            HEADSHOT
+            <span className="text-yellow-400 drop-shadow-[0_0_4px_rgba(250,204,21,0.6)] font-mono text-xl md:text-2xl">+200</span>
+          </div>
+          <div className="text-fuchsia-400 font-bold tracking-widest text-[9px] md:text-xs uppercase drop-shadow-[0_0_3px_rgba(217,70,239,0.5)]">
+            CRITICAL NEURAL TAG LINKED
           </div>
         </div>
       )}
@@ -203,6 +294,12 @@ export default function App() {
         @keyframes pulse-glow {
           0%, 100% { transform: scale(1); filter: brightness(1); }
           50% { transform: scale(1.02); filter: brightness(1.15); }
+        }
+        @keyframes headshot-enter {
+          0% { transform: translate(-50%, -20px) scale(0.8); opacity: 0; filter: brightness(2) contrast(1.5); }
+          15% { transform: translate(-50%, 0) scale(1.1); opacity: 1; filter: brightness(1.5); }
+          30% { transform: translate(-50%, 0) scale(1); filter: brightness(1); }
+          100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
         }
       `}</style>
 
@@ -261,7 +358,7 @@ export default function App() {
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
-                  8 Active Drone Targets
+                  40 Active Drone Targets
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
