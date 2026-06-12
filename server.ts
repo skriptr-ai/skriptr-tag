@@ -190,7 +190,22 @@ async function startServer() {
     });
 
     // 3. Join specific lobby
-    socket.on('joinLobby', (lobbyId: string) => {
+    socket.on('joinLobby', (data: string | { lobbyId: string, playerName?: string, color?: string }) => {
+      let lobbyId: string;
+      let customPlayerName: string | undefined;
+      let customColor: string | undefined;
+
+      if (typeof data === 'string') {
+        lobbyId = data;
+      } else if (data && typeof data === 'object') {
+        lobbyId = data.lobbyId;
+        customPlayerName = data.playerName;
+        customColor = data.color;
+      } else {
+        socket.emit('gameError', 'Invalid transmission data');
+        return;
+      }
+
       const lobby = lobbies[lobbyId];
       if (!lobby) {
         socket.emit('gameError', 'Target sector offline or non-existent');
@@ -207,10 +222,11 @@ async function startServer() {
         return;
       }
 
-      // Assign random color
+      // Assign custom color, falling back to cyclic defaults
       const colors = ['#ff0055', '#00ff00', '#ffff00', '#ff00ff', '#00ffff'];
-      const color = colors[Object.keys(lobby.players).length % colors.length];
-      const playerName = `Player ${playerCounter++}`;
+      const defaultColor = colors[Object.keys(lobby.players).length % colors.length];
+      const color = customColor || defaultColor;
+      const playerName = customPlayerName || `Player ${playerCounter++}`;
 
       const newPlayer: Player = {
         id: socket.id,
