@@ -53,6 +53,23 @@ export interface GameEvent {
   timestamp: number;
 }
 
+export interface LobbySummary {
+  id: string;
+  name: string;
+  playerCount: number;
+  maxPlayers: number;
+  status: 'waiting' | 'playing';
+  countdown: number;
+}
+
+export interface LobbyData {
+  id: string;
+  name: string;
+  players: Record<string, PlayerData>;
+  countdown: number;
+  status: 'waiting' | 'playing';
+}
+
 interface GameStore {
   gameState: GameState;
   gameMode: 'single' | 'online' | null;
@@ -82,6 +99,14 @@ interface GameStore {
   // Multiplayer
   socket: Socket | null;
   otherPlayers: Record<string, PlayerData>;
+  onlineMenuState: 'none' | 'browser' | 'waiting';
+  activeLobbies: LobbySummary[];
+  currentLobby: LobbyData | null;
+
+  getLobbies: () => void;
+  createLobby: (name: string) => void;
+  joinLobby: (lobbyId: string) => void;
+  leaveLobby: () => void;
 
   startGame: (mode?: 'single' | 'online') => void;
   endGame: () => void;
@@ -460,6 +485,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
   
   socket: null,
   otherPlayers: {},
+  onlineMenuState: 'none',
+  activeLobbies: [],
+  currentLobby: null,
+
+  getLobbies: () => {
+    const s = get().socket;
+    if (s) s.emit('getLobbies');
+  },
+  createLobby: (name) => {
+    const s = get().socket;
+    if (s) s.emit('createLobby', { name });
+  },
+  joinLobby: (lobbyId) => {
+    const s = get().socket;
+    if (s) s.emit('joinLobby', lobbyId);
+  },
+  leaveLobby: () => {
+    const s = get().socket;
+    if (s) s.emit('leaveLobby');
+    set({ onlineMenuState: 'browser', currentLobby: null, otherPlayers: {} });
+  },
 
   mobileInput: {
     move: { x: 0, y: 0 },
@@ -502,6 +548,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         playerPosition: [playerSpawn[0], 2, playerSpawn[2]],
         playerPositionEpoch: Date.now(),
         winnerName: null,
+        onlineMenuState: 'none',
+        currentLobby: null
       });
       return;
     }
@@ -512,15 +560,45 @@ export const useGameStore = create<GameStore>((set, get) => ({
     newSocket = io(window.location.origin);
     
     newSocket.on('connect', () => {
-      newSocket!.emit('joinGame');
+      newSocket!.emit('getLobbies');
     });
 
     newSocket.on('gameError', (msg: string) => {
       alert(msg);
-      get().leaveGame();
+      set({ onlineMenuState: 'browser', currentLobby: null });
     });
 
-    newSocket.on('gameJoined', (players: Record<string, PlayerData>) => {
+    newSocket.on('lobbiesList', (summary: LobbySummary[]) => {
+      set({ activeLobbies: summary });
+    });
+
+    newSocket.on('lobbyCreated', (lobbyId: string) => {
+      newSocket!.emit('joinLobby', lobbyId);
+    });
+
+    newSocket.on('lobbyJoined', (lobby: LobbyData) => {
+      set({
+        currentLobby: lobby,
+        onlineMenuState: 'waiting',
+        otherPlayers: {}, // Clear for lobby setup, we will populate players when game starts
+      });
+    });
+
+    newSocket.on('lobbyUpdated', (data: { players: Record<string, PlayerData>, countdown: number, status: 'waiting' | 'playing' }) => {
+      set(state => {
+        if (!state.currentLobby) return state;
+        return {
+          currentLobby: {
+            ...state.currentLobby,
+            players: data.players,
+            countdown: data.countdown,
+            status: data.status
+          }
+        };
+      });
+    });
+
+    newSocket.on('gameStarted', (players: Record<string, PlayerData>) => {
       const otherPlayers = { ...players };
       delete otherPlayers[newSocket!.id!];
       
@@ -532,6 +610,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         otherPlayers,
         gameState: 'playing',
         gameMode: 'online',
+        onlineMenuState: 'none',
         timeLeft: 120,
         score: 0,
         enemies: [],
@@ -544,10 +623,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
 
     newSocket.on('playerJoined', (player: PlayerData) => {
-      set(state => ({
-        otherPlayers: { ...state.otherPlayers, [player.id]: player },
-        events: [...state.events, { id: Math.random().toString(), message: `${player.name} joined`, timestamp: Date.now() }]
-      }));
+      if (get().gameState === 'playing') {
+        set(state => ({
+          otherPlayers: { ...state.otherPlayers, [player.id]: player },
+          events: [...state.events, { id: Math.random().toString(), message: `${player.name} joined`, timestamp: Date.now() }]
+        }));
+      }
     });
 
     newSocket.on('playerMoved', (data: { id: string, position: [number, number, number], rotation: number }) => {
@@ -642,6 +723,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
             winnerName: shooterName,
             socket: null,
             isPointerLocked: false,
+            onlineMenuState: 'none',
+            currentLobby: null,
             events: [...state.events, newEvent, { id: Math.random().toString(), message: `${shooterName} HAS WON THE MATCH!`, timestamp: Date.now() }]
           };
         }
@@ -663,8 +746,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
 
     set({
-      gameState: 'playing',
+      gameState: 'menu',
       gameMode: 'online',
+      onlineMenuState: 'browser',
+      activeLobbies: [],
+      currentLobby: null,
       score: 0,
       timeLeft: 120,
       playerState: 'active',
@@ -686,7 +772,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (socket) {
       socket.disconnect();
     }
-    set({ gameState: 'gameover', socket: null, isPointerLocked: false });
+    set({ gameState: 'gameover', socket: null, isPointerLocked: false, onlineMenuState: 'none', currentLobby: null });
   },
 
   leaveGame: () => {
@@ -697,6 +783,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       gameState: 'menu',
       gameMode: null,
+      onlineMenuState: 'none',
+      currentLobby: null,
+      activeLobbies: [],
       socket: null,
       otherPlayers: {},
       enemies: [],

@@ -280,7 +280,16 @@ export default function App() {
   const otherPlayers = useGameStore(state => state.otherPlayers);
   const winnerName = useGameStore(state => state.winnerName);
   const isMobile = useIsMobile();
+  
+  const onlineMenuState = useGameStore(state => state.onlineMenuState);
+  const activeLobbies = useGameStore(state => state.activeLobbies);
+  const currentLobby = useGameStore(state => state.currentLobby);
+  const createLobby = useGameStore(state => state.createLobby);
+  const joinLobby = useGameStore(state => state.joinLobby);
+  const leaveLobby = useGameStore(state => state.leaveLobby);
+
   const [selectedMode, setSelectedMode] = useState<'single' | 'online' | null>(null);
+  const [customLobbyName, setCustomLobbyName] = useState('');
 
   const finalLeaderboard = useMemo(() => {
     const list = [
@@ -337,135 +346,362 @@ export default function App() {
       {/* Menus */}
       {gameState === 'menu' && (
         <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center z-10 pointer-events-auto overflow-y-auto px-4 py-8">
-          {/* Main Title Section */}
-          <div className="text-center mb-8 animate-[fade-in_0.5s_ease-out]">
-            <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-cyan-400 mb-3 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)] tracking-tighter uppercase select-none animate-pulse">
-              NEON ARENA
-            </h1>
-            <p className="text-cyan-400/60 font-bold tracking-widest text-xs md:text-sm uppercase mb-4">
-              [ Grid System Status: Online ]
-            </p>
-            <div className="h-[2px] w-48 bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent mx-auto" />
-          </div>
+          
+          {/* 1. Main Mode Selection */}
+          {onlineMenuState === 'none' && (
+            <div className="flex flex-col items-center max-w-4xl w-full animate-[fade-in_0.4s_ease-out]">
+              {/* Main Title Section */}
+              <div className="text-center mb-8">
+                <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-cyan-400 mb-3 drop-shadow-[0_0_15px_rgba(34,211,238,0.3)] tracking-tighter uppercase select-none animate-pulse">
+                  NEON ARENA
+                </h1>
+                <p className="text-cyan-400/60 font-bold tracking-widest text-xs md:text-sm uppercase mb-4">
+                  [ Grid System Status: Online ]
+                </p>
+                <div className="h-[2px] w-48 bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent mx-auto" />
+              </div>
 
-          {/* Lobby Selection Container */}
-          <div className="flex flex-col md:flex-row gap-6 max-w-4xl w-full justify-center mb-8 animate-[fade-in_0.6s_ease-out]">
-            
-            {/* Solo Link Card */}
-            <div 
-              onClick={() => setSelectedMode('single')}
-              className={`relative flex flex-col p-6 rounded-2xl border-2 cursor-pointer transition-all duration-300 w-full md:w-80 bg-black/40 backdrop-blur-md hover:translate-y-[-4px] select-none ${
-                selectedMode === 'single' 
-                  ? 'border-fuchsia-500 shadow-[0_0_25px_rgba(217,70,239,0.3)] bg-fuchsia-950/10' 
-                  : 'border-fuchsia-500/20 hover:border-fuchsia-500/40 hover:shadow-[0_0_15px_rgba(217,70,239,0.15)] bg-black/40'
-              }`}
-            >
-              {/* Glow Indicator */}
-              {selectedMode === 'single' && (
-                <div className="absolute top-3 right-3 w-3 h-3 bg-fuchsia-500 rounded-full shadow-[0_0_8px_rgba(217,70,239,0.8)] animate-pulse" />
-              )}
-              
-              <h2 className="text-2xl font-black text-fuchsia-400 mb-2 uppercase tracking-wide">
-                SOLO LINK
-              </h2>
-              <p className="text-gray-400 text-xs leading-relaxed mb-4 min-h-[40px]">
-                Deploy offline against autonomous tactical AI drones. Perfect for raw reflex and weapon practice.
-              </p>
-              
-              <div className="h-[1px] bg-gradient-to-r from-fuchsia-500/20 to-transparent mb-4" />
-              
-              <ul className="text-[11px] text-fuchsia-300/80 font-bold tracking-wide flex flex-col gap-2 uppercase">
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
-                  Offline Sandbox Mode
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
-                  40 Active Drone Targets
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
-                  No Latency / Local Client
-                </li>
-              </ul>
+              {/* Lobby Selection Container */}
+              <div className="flex flex-col md:flex-row gap-6 justify-center mb-8 w-full">
+                
+                {/* Solo Link Card */}
+                <div 
+                  onClick={() => setSelectedMode('single')}
+                  className={`relative flex flex-col p-6 rounded-2xl border-2 cursor-pointer transition-all duration-300 w-full md:w-80 bg-black/40 backdrop-blur-md hover:translate-y-[-4px] select-none ${
+                    selectedMode === 'single' 
+                      ? 'border-fuchsia-500 shadow-[0_0_25px_rgba(217,70,239,0.3)] bg-fuchsia-950/10' 
+                      : 'border-fuchsia-500/20 hover:border-fuchsia-500/40 hover:shadow-[0_0_15px_rgba(217,70,239,0.15)] bg-black/40'
+                  }`}
+                >
+                  {selectedMode === 'single' && (
+                    <div className="absolute top-3 right-3 w-3 h-3 bg-fuchsia-500 rounded-full shadow-[0_0_8px_rgba(217,70,239,0.8)] animate-pulse" />
+                  )}
+                  
+                  <h2 className="text-2xl font-black text-fuchsia-400 mb-2 uppercase tracking-wide">
+                    SOLO LINK
+                  </h2>
+                  <p className="text-gray-400 text-xs leading-relaxed mb-4 min-h-[40px]">
+                    Deploy offline against autonomous tactical AI drones. Perfect for raw reflex and weapon practice.
+                  </p>
+                  
+                  <div className="h-[1px] bg-gradient-to-r from-fuchsia-500/20 to-transparent mb-4" />
+                  
+                  <ul className="text-[11px] text-fuchsia-300/80 font-bold tracking-wide flex flex-col gap-2 uppercase">
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
+                      Offline Sandbox Mode
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
+                      40 Active Drone Targets
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full" />
+                      No Latency / Local Client
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Multi Link Card */}
+                <div 
+                  onClick={() => setSelectedMode('online')}
+                  className={`relative flex flex-col p-6 rounded-2xl border-2 cursor-pointer transition-all duration-300 w-full md:w-80 bg-black/40 backdrop-blur-md hover:translate-y-[-4px] select-none ${
+                    selectedMode === 'online' 
+                      ? 'border-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.3)] bg-cyan-950/10' 
+                      : 'border-cyan-500/20 hover:border-cyan-400/40 hover:shadow-[0_0_15px_rgba(34,211,238,0.15)] bg-black/40'
+                  }`}
+                >
+                  {selectedMode === 'online' && (
+                    <div className="absolute top-3 right-3 w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse" />
+                  )}
+                  
+                  <h2 className="text-2xl font-black text-cyan-400 mb-2 uppercase tracking-wide">
+                    MULTI LINK
+                  </h2>
+                  <p className="text-gray-400 text-xs leading-relaxed mb-4 min-h-[40px]">
+                    Sync onto the global grid. Hunt tactical drones alongside other players in real-time.
+                  </p>
+                  
+                  <div className="h-[1px] bg-gradient-to-r from-cyan-500/20 to-transparent mb-4" />
+                  
+                  <ul className="text-[11px] text-cyan-300/80 font-bold tracking-wide flex flex-col gap-2 uppercase">
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                      Synchronized Grid Match
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                      Real-time Global Leaderboard
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                      Cooperative Drone Hunt
+                    </li>
+                  </ul>
+                </div>
+
+              </div>
+
+              {/* Sliding Action Button Section */}
+              <div className="h-20 w-full max-w-sm flex items-center justify-center relative overflow-hidden">
+                <div className={`w-full transition-all duration-500 transform ${
+                  selectedMode 
+                    ? 'translate-y-0 opacity-100' 
+                    : 'translate-y-8 opacity-0 pointer-events-none'
+                }`}>
+                  <button
+                    onClick={() => {
+                      if (selectedMode) {
+                        startGame(selectedMode);
+                      }
+                    }}
+                    className={`w-full py-4 text-lg font-black tracking-widest rounded-xl border-2 transition-all duration-300 active:scale-95 cursor-pointer ${
+                      selectedMode === 'single'
+                        ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-400 hover:bg-fuchsia-400 hover:text-black hover:shadow-[0_0_30px_rgba(217,70,239,0.6)] shadow-[0_0_15px_rgba(217,70,239,0.3)]'
+                        : 'bg-cyan-500/20 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black hover:shadow-[0_0_30px_rgba(34,211,238,0.6)] shadow-[0_0_15px_rgba(34,211,238,0.3)]'
+                    }`}
+                    style={{
+                      animation: 'pulse-glow 2s infinite ease-in-out'
+                    }}
+                  >
+                    INITIALIZE LINK
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Info/Controls Footer */}
+              <div className="mt-8 text-center text-[10px] text-gray-500 uppercase tracking-widest font-bold flex gap-4 animate-[fade-in_0.8s_ease-out]">
+                <span>WASD: Move</span>
+                <span>•</span>
+                <span>Mouse: Look & Shoot</span>
+                <span>•</span>
+                <span>Esc: Release Mouse</span>
+              </div>
             </div>
+          )}
 
-            {/* Multi Link Card */}
-            <div 
-              onClick={() => setSelectedMode('online')}
-              className={`relative flex flex-col p-6 rounded-2xl border-2 cursor-pointer transition-all duration-300 w-full md:w-80 bg-black/40 backdrop-blur-md hover:translate-y-[-4px] select-none ${
-                selectedMode === 'online' 
-                  ? 'border-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.3)] bg-cyan-950/10' 
-                  : 'border-cyan-500/20 hover:border-cyan-400/40 hover:shadow-[0_0_15px_rgba(34,211,238,0.15)] bg-black/40'
-              }`}
-            >
-              {/* Glow Indicator */}
-              {selectedMode === 'online' && (
-                <div className="absolute top-3 right-3 w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse" />
-              )}
-              
-              <h2 className="text-2xl font-black text-cyan-400 mb-2 uppercase tracking-wide">
-                MULTI LINK
-              </h2>
-              <p className="text-gray-400 text-xs leading-relaxed mb-4 min-h-[40px]">
-                Sync onto the global grid. Hunt tactical drones alongside other players in real-time.
-              </p>
-              
-              <div className="h-[1px] bg-gradient-to-r from-cyan-500/20 to-transparent mb-4" />
-              
-              <ul className="text-[11px] text-cyan-300/80 font-bold tracking-wide flex flex-col gap-2 uppercase">
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                  Synchronized Grid Match
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                  Real-time Global Leaderboard
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                  Cooperative Drone Hunt
-                </li>
-              </ul>
+          {/* 2. Sector Selector (Lobby Browser) */}
+          {onlineMenuState === 'browser' && (
+            <div className="w-full max-w-4xl flex flex-col gap-6 animate-[fade-in_0.4s_ease-out]">
+              <div className="text-center mb-2">
+                <h1 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-cyan-500 to-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.4)] tracking-wide uppercase select-none">
+                  SECTOR SELECTOR
+                </h1>
+                <p className="text-cyan-400/60 font-bold tracking-widest text-xs uppercase mt-2">
+                  [ CONSTRUCTING AND SELECTING GRID COUPLING ]
+                </p>
+                <div className="h-[1px] w-32 bg-cyan-500/30 mx-auto mt-3" />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {activeLobbies.length === 0 ? (
+                  <div className="col-span-1 md:col-span-2 p-8 rounded-2xl border border-cyan-500/10 bg-black/40 text-center text-cyan-400/40 text-sm tracking-widest font-bold uppercase animate-pulse">
+                    Scanning for operational sectors...
+                  </div>
+                ) : (
+                  activeLobbies.map(lobby => {
+                    const isFull = lobby.playerCount >= lobby.maxPlayers;
+                    const isPlaying = lobby.status === 'playing';
+                    const isJoinable = !isFull && !isPlaying;
+
+                    return (
+                      <div 
+                        key={lobby.id}
+                        className={`p-5 rounded-2xl border-2 bg-black/40 backdrop-blur-md flex flex-col justify-between gap-4 transition-all duration-300 relative group overflow-hidden ${
+                          isJoinable
+                            ? 'border-cyan-500/20 hover:border-cyan-400/60 hover:shadow-[0_0_15px_rgba(34,211,238,0.15)] bg-cyan-950/5'
+                            : 'border-red-500/20 opacity-60 bg-black/60'
+                        }`}
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-cyan-500/5 to-transparent -translate-y-full group-hover:translate-y-full transition-transform duration-[1.5s] ease-in-out" />
+
+                        <div>
+                          <div className="flex justify-between items-start mb-2">
+                            <h3 className={`text-lg font-black tracking-wider uppercase ${isJoinable ? 'text-cyan-400' : 'text-gray-400'}`}>
+                              {lobby.name}
+                            </h3>
+                            <span className={`text-[10px] px-2 py-0.5 rounded font-black tracking-widest uppercase border ${
+                              isPlaying 
+                                ? 'bg-fuchsia-950/20 border-fuchsia-500/30 text-fuchsia-400 shadow-[0_0_10px_rgba(217,70,239,0.15)]'
+                                : isFull
+                                  ? 'bg-red-950/20 border-red-500/30 text-red-500'
+                                  : 'bg-cyan-950/20 border-cyan-500/30 text-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.15)]'
+                            }`}>
+                              {isPlaying ? 'ACTIVE HUNT' : isFull ? 'MAX SIGNALS' : 'WAITING'}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-wide">
+                            <span>Synced signals:</span>
+                            <span className={isJoinable ? 'text-cyan-300/80' : 'text-gray-400'}>
+                              {lobby.playerCount} / {lobby.maxPlayers}
+                            </span>
+                          </div>
+
+                          {!isPlaying && lobby.playerCount > 0 && (
+                            <div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-wide mt-1">
+                              <span>Coupling in:</span>
+                              <span className="text-yellow-400 drop-shadow-[0_0_4px_rgba(250,204,21,0.4)] animate-pulse font-mono font-bold">
+                                {lobby.countdown}s
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          disabled={!isJoinable}
+                          onClick={() => joinLobby(lobby.id)}
+                          className={`w-full py-2.5 rounded-xl text-xs font-black tracking-widest border transition-all duration-200 uppercase ${
+                            isJoinable
+                              ? 'bg-cyan-500/10 border-cyan-400/40 text-cyan-400 hover:bg-cyan-400 hover:text-black hover:shadow-[0_0_10px_rgba(34,211,238,0.4)] cursor-pointer shadow-[0_0_8px_rgba(34,211,238,0.1)]'
+                              : 'bg-transparent border-gray-800 text-gray-600 cursor-not-allowed'
+                          }`}
+                        >
+                          {isPlaying ? 'SECTOR LOCKED' : isFull ? 'CAPACITY EXCEEDED' : 'ESTABLISH LINK'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Construct custom lobby box */}
+              <div className="p-6 rounded-2xl border-2 border-dashed border-cyan-500/20 bg-black/20 backdrop-blur-md flex flex-col md:flex-row items-center gap-4 mt-2">
+                <div className="flex-1 text-center md:text-left">
+                  <h3 className="text-sm font-black text-cyan-400 uppercase tracking-wider mb-1">
+                    CONSTRUCT CUSTOM SECTOR
+                  </h3>
+                  <p className="text-xs text-gray-500 leading-relaxed uppercase font-bold tracking-wide">
+                    Spin up an isolated parallel coordinate block on the grid network.
+                  </p>
+                </div>
+                <div className="flex w-full md:w-auto items-center gap-2">
+                  <input 
+                    type="text"
+                    maxLength={12}
+                    placeholder="SECTOR CODE"
+                    value={customLobbyName}
+                    onChange={(e) => setCustomLobbyName(e.target.value.toUpperCase())}
+                    className="flex-1 md:w-48 px-4 py-2 text-sm bg-black/50 border border-cyan-500/30 rounded-xl text-cyan-400 focus:outline-none focus:border-cyan-400 font-mono tracking-widest placeholder-cyan-900/60 uppercase"
+                  />
+                  <button
+                    onClick={() => {
+                      if (customLobbyName.trim()) {
+                        createLobby(customLobbyName.trim());
+                        setCustomLobbyName('');
+                      } else {
+                        alert('Enter a valid sector code');
+                      }
+                    }}
+                    className="px-4 py-2.5 bg-cyan-400 text-black text-xs font-black tracking-widest rounded-xl hover:shadow-[0_0_15px_rgba(34,211,238,0.6)] hover:bg-white active:scale-95 transition-all duration-200 uppercase cursor-pointer"
+                  >
+                    CONSTRUCT
+                  </button>
+                </div>
+              </div>
+
+              {/* Back to System Main */}
+              <div className="flex justify-center mt-4">
+                <button
+                  onClick={() => leaveGame()}
+                  className="px-6 py-2.5 border border-cyan-500/30 hover:border-cyan-400 text-cyan-400/70 hover:text-cyan-400 text-xs font-bold rounded-xl transition-all duration-200 uppercase tracking-widest cursor-pointer"
+                >
+                  DISCONNECT SOCKET
+                </button>
+              </div>
             </div>
+          )}
 
-          </div>
+          {/* 3. Pre-Match Sync (Waiting Lobby) */}
+          {onlineMenuState === 'waiting' && currentLobby && (
+            <div className="w-full max-w-2xl flex flex-col gap-6 items-center text-center animate-[fade-in_0.4s_ease-out]">
+              
+              <div className="flex flex-col gap-1 items-center">
+                <span className="text-[10px] text-fuchsia-400 font-black tracking-widest border border-fuchsia-500/30 px-2 py-0.5 rounded bg-fuchsia-950/20 mb-2 animate-pulse">
+                  SECURE GRID GATEWAY
+                </span>
+                <h1 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.4)] tracking-wide uppercase select-none">
+                  SECTOR: {currentLobby.name}
+                </h1>
+                <p className="text-gray-400 text-xs font-semibold uppercase mt-1 tracking-wider">
+                  PRE-MATCH TRANSMISSION PIPELINE ESTABLISHED
+                </p>
+              </div>
 
-          {/* Sliding Action Button Section */}
-          <div className="h-20 w-full max-w-sm flex items-center justify-center relative overflow-hidden">
-            <div className={`w-full transition-all duration-500 transform ${
-              selectedMode 
-                ? 'translate-y-0 opacity-100' 
-                : 'translate-y-8 opacity-0 pointer-events-none'
-            }`}>
+              {/* Central Pulsing Countdown Ring */}
+              <div className="relative w-40 h-40 flex flex-col items-center justify-center my-2">
+                <svg className="absolute w-36 h-36 -rotate-90">
+                  <circle 
+                    cx="72" cy="72" r="64"
+                    className="stroke-cyan-500/10 fill-none"
+                    strokeWidth="4"
+                  />
+                  <circle 
+                    cx="72" cy="72" r="64"
+                    className="stroke-cyan-400 fill-none transition-all duration-1000 ease-linear"
+                    strokeWidth="4"
+                    strokeDasharray="402"
+                    strokeDashoffset={(402 - (402 * currentLobby.countdown) / 60).toString()}
+                    style={{
+                      filter: 'drop-shadow(0 0 6px rgba(34, 211, 238, 0.8))'
+                    }}
+                  />
+                </svg>
+
+                <div className="flex flex-col items-center z-10 select-none animate-[pulse-glow_2s_infinite]">
+                  <span className="font-mono text-4xl md:text-5xl font-black text-cyan-300 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]">
+                    {currentLobby.countdown.toString().padStart(2, '0')}
+                  </span>
+                  <span className="text-[10px] font-black tracking-widest text-cyan-400/60 mt-1 uppercase">
+                    SECONDS
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-yellow-400/80 text-[11px] font-black tracking-widest uppercase animate-pulse mb-1">
+                ⚠️ TRANSMISSION SYNC IN PROGRESS — GAME WILL AUTOMATICALLY LAUNCH
+              </p>
+
+              {/* Synchronized Signals Table */}
+              <div className="w-full bg-black/50 border border-cyan-500/20 rounded-2xl p-4 flex flex-col gap-2.5">
+                <div className="text-[10px] text-cyan-400/60 font-black tracking-widest uppercase text-left border-b border-cyan-500/10 pb-2 flex justify-between">
+                  <span>SECURED CHANNELS</span>
+                  <span className="animate-pulse">ONLINE STATUS</span>
+                </div>
+
+                <div className="flex flex-col gap-2 max-h-[180px] overflow-y-auto pr-1">
+                  {Object.values(currentLobby.players).map((p) => (
+                    <div 
+                      key={p.id}
+                      className="flex justify-between items-center bg-black/40 px-3 py-2 rounded-xl border border-cyan-500/5 hover:border-cyan-500/20 transition-all duration-200"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span 
+                          className="w-2.5 h-2.5 rounded-full shadow-[0_0_6px_currentColor] animate-pulse" 
+                          style={{ color: p.color || '#00ffff' }}
+                        />
+                        <span className="text-sm font-bold text-cyan-400 font-mono tracking-wide">
+                          {p.name} {p.id === useGameStore.getState().socket?.id ? '(YOU)' : ''}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-black text-green-400 border border-green-500/20 px-2 py-0.5 rounded bg-green-950/20 tracking-wider">
+                        CHANNEL ACTIVE
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Abort Connection */}
               <button
-                onClick={() => {
-                  if (selectedMode) {
-                    startGame(selectedMode);
-                  }
-                }}
-                className={`w-full py-4 text-lg font-black tracking-widest rounded-xl border-2 transition-all duration-300 active:scale-95 cursor-pointer ${
-                  selectedMode === 'single'
-                    ? 'bg-fuchsia-500/20 border-fuchsia-400 text-fuchsia-400 hover:bg-fuchsia-400 hover:text-black hover:shadow-[0_0_30px_rgba(217,70,239,0.6)] shadow-[0_0_15px_rgba(217,70,239,0.3)]'
-                    : 'bg-cyan-500/20 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black hover:shadow-[0_0_30px_rgba(34,211,238,0.6)] shadow-[0_0_15px_rgba(34,211,238,0.3)]'
-                }`}
-                style={{
-                  animation: 'pulse-glow 2s infinite ease-in-out'
-                }}
+                onClick={() => leaveLobby()}
+                className="mt-2 px-8 py-3 bg-red-500/10 border border-red-500/40 hover:border-red-500 text-red-500 hover:text-black hover:bg-red-500 text-xs font-black tracking-widest rounded-xl transition-all duration-200 uppercase cursor-pointer shadow-[0_0_10px_rgba(239,68,68,0.1)]"
               >
-                INITIALIZE LINK
+                ABORT CONNECTION
               </button>
             </div>
-          </div>
+          )}
 
-          {/* Quick Info/Controls Footer */}
-          <div className="mt-8 text-center text-[10px] text-gray-500 uppercase tracking-widest font-bold flex gap-4 animate-[fade-in_0.8s_ease-out]">
-            <span>WASD: Move</span>
-            <span>•</span>
-            <span>Mouse: Look & Shoot</span>
-            <span>•</span>
-            <span>Esc: Release Mouse</span>
-          </div>
         </div>
       )}
 
