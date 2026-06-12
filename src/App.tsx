@@ -8,6 +8,8 @@ import { Game } from './components/Game';
 import { MobileControls } from './components/MobileControls';
 import { useGameStore } from './store';
 import { Minimap } from './components/Minimap';
+import { LoginScreen } from './components/LoginScreen';
+import { ProfileCustomization } from './components/ProfileCustomization';
 
 function HUD() {
   const gameState = useGameStore(state => state.gameState);
@@ -271,6 +273,15 @@ function useIsMobile() {
 }
 
 export default function App() {
+  const user = useGameStore(state => state.user);
+  const authLoading = useGameStore(state => state.authLoading);
+  const initializeAuthListener = useGameStore(state => state.initializeAuthListener);
+
+  useEffect(() => {
+    const unsubscribe = initializeAuthListener();
+    return () => unsubscribe();
+  }, [initializeAuthListener]);
+
   const gameState = useGameStore(state => state.gameState);
   const gameMode = useGameStore(state => state.gameMode);
   const score = useGameStore(state => state.score);
@@ -312,6 +323,30 @@ export default function App() {
 
     return list.sort((a, b) => b.score - a.score);
   }, [score, enemies, otherPlayers, gameMode]);
+
+  if (authLoading) {
+    return (
+      <div className="w-screen h-screen bg-black flex flex-col items-center justify-center font-mono select-none text-cyan-400">
+        <div className="relative w-24 h-24 flex items-center justify-center mb-6">
+          <div className="absolute inset-0 border border-cyan-500/20 rounded-full animate-ping" style={{ animationDuration: '2s' }} />
+          <div className="absolute inset-2 border-2 border-dashed border-cyan-400 rounded-full animate-[spin_8s_linear_infinite]" />
+          <span className="text-cyan-400 font-bold text-2xl animate-pulse">⚡</span>
+        </div>
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <h2 className="text-sm font-black tracking-widest uppercase animate-pulse drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
+            ESTABLISHING COUPLING LINK
+          </h2>
+          <span className="text-[10px] text-cyan-400/50 uppercase tracking-widest font-semibold animate-pulse">
+            DECRYPTING SYSTEM AUTHS...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
 
   const winner = winnerName || (finalLeaderboard[0]?.name || 'Unknown');
   const isMeWinner = winner === 'You';
@@ -467,6 +502,11 @@ export default function App() {
                     INITIALIZE LINK
                   </button>
                 </div>
+              </div>
+
+              {/* Profile Config Component */}
+              <div className="mt-8 w-full max-w-xl animate-[fade-in_0.6s_ease-out]">
+                <ProfileCustomization />
               </div>
 
               {/* Quick Info/Controls Footer */}

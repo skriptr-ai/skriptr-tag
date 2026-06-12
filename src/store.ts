@@ -7,6 +7,9 @@ import { create } from 'zustand';
 import * as THREE from 'three';
 import { io, Socket } from 'socket.io-client';
 import { BOT_NAMES } from './botNames';
+import { auth, db, googleProvider } from './firebase';
+import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
 
 export type GameState = 'menu' | 'playing' | 'gameover';
 export type EntityState = 'active' | 'disabled';
@@ -137,6 +140,26 @@ interface GameStore {
     shooting: boolean;
   }>) => void;
   winnerName: string | null;
+
+  // Firebase Auth & Firestore State & Actions
+  user: User | null;
+  userProfile: {
+    uid: string;
+    email: string;
+    displayName: string;
+    color: string;
+    highScoreSinglePlayer: number;
+    onlineGamesWon: number;
+  } | null;
+  authLoading: boolean;
+  authError: string | null;
+
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  updateProfile: (displayName: string, color: string) => Promise<void>;
+  recordSinglePlayerScore: (score: number) => Promise<void>;
+  incrementOnlineWin: () => Promise<void>;
+  initializeAuthListener: () => () => void;
 }
 
 function mulberry32(a: number) {
@@ -455,6 +478,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lasers: [],
   particles: [],
   events: [],
+  user: null,
+  userProfile: null,
+  authLoading: true,
+  authError: null,
   headshotAlerts: [],
   playerPosition: [0, 2, 0],
   playerRotation: 0,
@@ -499,7 +526,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   joinLobby: (lobbyId) => {
     const s = get().socket;
-    if (s) s.emit('joinLobby', lobbyId);
+    const profile = get().userProfile;
+    if (s) {
+      s.emit('joinLobby', {
+        lobbyId,
+        playerName: profile?.displayName || 'Unknown Agent',
+        color: profile?.color || '#00ffff'
+      });
+    }
   },
   leaveLobby: () => {
     const s = get().socket;
@@ -573,7 +607,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
 
     newSocket.on('lobbyCreated', (lobbyId: string) => {
-      newSocket!.emit('joinLobby', lobbyId);
+      const profile = get().userProfile;
+      newSocket!.emit('joinLobby', {
+        lobbyId,
+        playerName: profile?.displayName || 'Unknown Agent',
+        color: profile?.color || '#00ffff'
+      });
     });
 
     newSocket.on('lobbyJoined', (lobby: LobbyData) => {
@@ -716,6 +755,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (data.shooterScore >= 1000) {
           if (newSocket) {
             newSocket.disconnect();
+          }
+          if (isLocalShooter) {
+            get().incrementOnlineWin();
           }
           return {
             ...newState,
@@ -890,6 +932,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (byPlayer && nextScore >= 1000) {
       if (state.socket) state.socket.disconnect();
+      get().recordSinglePlayerScore(nextScore);
       return {
         enemies,
         score: nextScore,
@@ -928,12 +971,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   }),
 
   addLaser: (start, end, color) => {
-    const { socket } = get();
+    const { socket, userProfile } = get();
+    const finalColor = color || userProfile?.color || '#00ffff';
     if (socket) {
-      socket.emit('shoot', { start, end, color });
+      socket.emit('shoot', { start, end, color: finalColor });
     }
     set((state) => ({
-      lasers: [...state.lasers, { id: Math.random().toString(36).substr(2, 9), start, end, timestamp: Date.now(), color }]
+      lasers: [...state.lasers, { id: Math.random().toString(36).substr(2, 9), start, end, timestamp: Date.now(), color: finalColor }]
     }));
   },
 
@@ -1079,5 +1123,150 @@ export const useGameStore = create<GameStore>((set, get) => ({
       socket.emit('updatePosition', { position, rotation });
     }
     set({ playerPosition: position, playerRotation: rotation });
+  },
+
+  login: async () => {
+    set({ authLoading: true, authError: null });
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      const isSkriptr = /^[^@]+@skriptr\.[a-zA-Z.]+$/.test(user.email || '');
+      if (!isSkriptr) {
+        await signOut(auth);
+        set({ user: null, userProfile: null, authLoading: false, authError: 'Access denied: You must log in with a @skriptr account.' });
+        return;
+      }
+      
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      let profile = null;
+      if (!docSnap.exists()) {
+        profile = {
+          uid: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || 'Unknown Agent',
+          color: '#00ffff',
+          highScoreSinglePlayer: 0,
+          onlineGamesWon: 0,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        await setDoc(docRef, profile);
+      } else {
+        profile = docSnap.data();
+      }
+      set({ user, userProfile: profile as any, authLoading: false, authError: null });
+    } catch (err: any) {
+      console.error("Login failed:", err);
+      set({ authLoading: false, authError: err.message });
+    }
+  },
+
+  logout: async () => {
+    set({ authLoading: true });
+    try {
+      await signOut(auth);
+      set({ user: null, userProfile: null, authLoading: false, authError: null });
+    } catch (err: any) {
+      console.error("Logout failed:", err);
+      set({ authLoading: false, authError: err.message });
+    }
+  },
+
+  updateProfile: async (displayName, color) => {
+    const user = get().user;
+    if (!user) return;
+    try {
+      const docRef = doc(db, 'users', user.uid);
+      await updateDoc(docRef, {
+        displayName,
+        color,
+        updatedAt: new Date()
+      });
+      set(state => ({
+        userProfile: state.userProfile ? { ...state.userProfile, displayName, color } : null
+      }));
+    } catch (err: any) {
+      console.error("Profile update failed:", err);
+    }
+  },
+
+  recordSinglePlayerScore: async (score) => {
+    const user = get().user;
+    const profile = get().userProfile;
+    if (!user || !profile) return;
+    if (score > profile.highScoreSinglePlayer) {
+      try {
+        const docRef = doc(db, 'users', user.uid);
+        await updateDoc(docRef, {
+          highScoreSinglePlayer: score,
+          updatedAt: new Date()
+        });
+        set(state => ({
+          userProfile: state.userProfile ? { ...state.userProfile, highScoreSinglePlayer: score } : null
+        }));
+      } catch (err: any) {
+        console.error("High score update failed:", err);
+      }
+    }
+  },
+
+  incrementOnlineWin: async () => {
+    const user = get().user;
+    const profile = get().userProfile;
+    if (!user || !profile) return;
+    try {
+      const docRef = doc(db, 'users', user.uid);
+      await updateDoc(docRef, {
+        onlineGamesWon: increment(1),
+        updatedAt: new Date()
+      });
+      set(state => ({
+        userProfile: state.userProfile ? { ...state.userProfile, onlineGamesWon: state.userProfile.onlineGamesWon + 1 } : null
+      }));
+    } catch (err: any) {
+      console.error("Win increment failed:", err);
+    }
+  },
+
+  initializeAuthListener: () => {
+    set({ authLoading: true });
+    return onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const isSkriptr = /^[^@]+@skriptr\.[a-zA-Z.]+$/.test(user.email || '');
+        if (!isSkriptr) {
+          await signOut(auth);
+          set({ user: null, userProfile: null, authLoading: false, authError: 'Access denied: You must log in with a @skriptr account.' });
+          return;
+        }
+
+        try {
+          const docRef = doc(db, 'users', user.uid);
+          const docSnap = await getDoc(docRef);
+          let profile = null;
+          if (!docSnap.exists()) {
+            profile = {
+              uid: user.uid,
+              email: user.email || '',
+              displayName: user.displayName || 'Unknown Agent',
+              color: '#00ffff',
+              highScoreSinglePlayer: 0,
+              onlineGamesWon: 0,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+            await setDoc(docRef, profile);
+          } else {
+            profile = docSnap.data();
+          }
+          set({ user, userProfile: profile as any, authLoading: false, authError: null });
+        } catch (err: any) {
+          console.error("Error loading user profile in listener:", err);
+          set({ user: null, userProfile: null, authLoading: false, authError: err.message });
+        }
+      } else {
+        set({ user: null, userProfile: null, authLoading: false, authError: null });
+      }
+    });
   }
 }));
